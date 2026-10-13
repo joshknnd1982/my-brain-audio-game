@@ -20,6 +20,6 @@ Windows SmartScreen
 This installer is not code-signed, because signing costs money. Windows may say it protected your PC. Choose "More info", then "Run anyway".
 
 License
-The program code is under the MIT License. Jim Kitchen's sound files are not. The license text was on the page before this one and is also in LICENSE.txt in the program folder. Third-party parts are listed in THIRD_PARTY_NOTICES.txt in the program folder.
+The program code is under the MIT License. Jim Kitchen's sound files are not. The license text was on the page before this one and is also in LICENSE.txt in the program folder; SOUNDS_NOTICE.txt there explains the sound files. Third-party parts are listed in THIRD_PARTY_NOTICES.txt in the program folder.
 
 Source code and updates: https://github.com/joshknnd1982

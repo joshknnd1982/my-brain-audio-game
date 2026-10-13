@@ -38,7 +38,7 @@ Needs Python 3.14 (64-bit and 32-bit for both builds), Inno Setup 6 for the inst
 4. `spec/` holds the written description of the original program's behavior (`GAME_SPEC.md`), its decisions and open questions.
 
 ## License
-The new code, tests and documents are under the MIT License (`LICENSE`), copyright Josh Kennedy. The sound files are Jim Kitchen's and are not covered by it. Third-party parts: `clone/THIRD_PARTY_NOTICES.txt`.
+The new code, tests and documents are under the MIT License (`LICENSE`), copyright Josh Kennedy. The sound files are Jim Kitchen's and are not covered by it (see `SOUNDS_NOTICE.txt`). Third-party parts: `clone/THIRD_PARTY_NOTICES.txt`.
 
 ## Credits
 Jim Kitchen, for the original Brain and his free games. Code and maintenance: Josh Kennedy, https://github.com/joshknnd1982. NVDA controller client: NV Access.

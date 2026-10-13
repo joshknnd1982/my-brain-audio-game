@@ -43,6 +43,7 @@ foreach ($b in ($Bits -split ",")) {
     Copy-Item (Join-Path $clone "assets\sounds\*") $sounds
     Copy-Item (Join-Path $clone "README.md") (Join-Path $out "README.txt")
     Copy-Item (Join-Path $game "LICENSE") (Join-Path $out "LICENSE.txt")
+    Copy-Item (Join-Path $game "SOUNDS_NOTICE.txt") $out
     Copy-Item (Join-Path $clone "THIRD_PARTY_NOTICES.txt") $out
     Write-Host "built $b-bit: $out"
 }

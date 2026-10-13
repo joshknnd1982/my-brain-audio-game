@@ -19,19 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-What this license covers
-
-This license covers the new program code, tests and documents written for
-this clone (the "My Brain by Josh Kennedy, inspired by Jim Kitchen" project).
-That code was written from a description of how Jim Kitchen's original
-program behaves and contains none of his program code.
-
-It does not cover the 42 sound files in assets\sounds. Those are Jim Kitchen's
-original wav files. He was blind from birth, made his games free for the blind
-community, and died in 2015. His permission to use the wav files was given to
-Josh Kennedy; the original email is lost. They are included on the maintainer's
-own responsibility. If a rights holder asks for them to be removed, they will
-be removed.
-
-Third-party parts keep their own licenses: see THIRD_PARTY_NOTICES.txt.
