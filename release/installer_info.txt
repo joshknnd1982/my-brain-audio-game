@@ -1,5 +1,5 @@
 My Brain by Josh Kennedy, inspired by Jim Kitchen
-Version 1.0.2
+Version 1.0.3
 
 This is inspired by Jim Kitchen. Jim Kitchen was blind from birth and made many free games for the blind community. He died in 2015. My Brain is a sound toy: you choose how many sounds play at once and how they pan across your speakers, and random sounds then play at random pitch until you press a key. This clone is new code written from a description of how his program behaves. It plays his original sound files, which are included on the maintainer's own responsibility: Jim Kitchen gave Josh Kennedy permission to use his wav files, but the original email is lost. A rights holder can ask for the files to be removed and they will be.
 

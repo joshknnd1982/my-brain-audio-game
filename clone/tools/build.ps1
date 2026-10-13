@@ -31,7 +31,7 @@ foreach ($b in ($Bits -split ",")) {
             --add-data "$srcCopy\brain\speech\nvda_client;brain\speech\nvda_client" `
             --hidden-import win32com.client --hidden-import pythoncom --hidden-import pywintypes `
             --hidden-import win32timezone `
-            --exclude-module tkinter --exclude-module pytest --exclude-module wx `
+            --exclude-module tkinter --exclude-module pytest --exclude-module wx --exclude-module numpy `
             --exclude-module ssl --exclude-module _ssl --exclude-module _hashlib `
             --exclude-module pygame.font --exclude-module pygame.freetype --exclude-module pygame.image `
             --exclude-module pygame.imageext --exclude-module pygame.transform --exclude-module pygame.draw `

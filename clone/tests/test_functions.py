@@ -3,6 +3,7 @@
 Everything runs on the test rig: fake speech, scripted keys (typed when a menu waits for one), a
 virtual clock, a test sound library. Spoken texts are compared by their meaningful parts.
 """
+import audioop
 import os
 
 import pytest
@@ -255,7 +256,7 @@ def test_sound_volume_enter_restores_the_original_and_scales_the_samples():
     rig = sounds_rig([LEFT] * 5 + [ENTER])
     assert rig.settings.audio.effects_volume == 100
     quiet, full = rig.output.played[4][1], rig.output.played[5][1]
-    assert abs(quiet).max() < abs(full).max()
+    assert audioop.max(quiet, 2) < audioop.max(full, 2)
 
 
 def test_pitch_variation_steps_of_two_from_zero_to_twenty():

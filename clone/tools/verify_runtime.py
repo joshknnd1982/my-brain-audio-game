@@ -33,27 +33,20 @@ def check(name, func):
 
 
 def read_wav_mono(path):
-    """Return (samples as float32 -1..1, sample rate) for 8- or 16-bit mono PCM."""
-    import numpy as np
+    """Return (16-bit mono PCM bytes, sample rate) for 8- or 16-bit mono PCM."""
+    import audioop
     with wave.open(path, "rb") as w:
         rate, width, frames = w.getframerate(), w.getsampwidth(), w.readframes(w.getnframes())
     if width == 1:  # 8-bit wav is unsigned
-        data = (np.frombuffer(frames, np.uint8).astype(np.float32) - 128.0) / 128.0
-    else:
-        data = np.frombuffer(frames, "<i2").astype(np.float32) / 32768.0
-    return data, rate
+        frames = audioop.lin2lin(audioop.bias(frames, 1, 128), 1, 2)
+    return frames, rate
 
 
 def pitched_stereo(data, play_rate, mix_rate, left, right):
-    """Resample so the sound plays as if its buffer ran at play_rate, then pan."""
-    import numpy as np
-    out_len = max(1, int(round(len(data) * mix_rate / play_rate)))
-    pos = np.arange(out_len) * (play_rate / mix_rate)
-    mono = np.interp(pos, np.arange(len(data)), data)
-    pcm = np.empty((out_len, 2), np.int16)
-    pcm[:, 0] = np.clip(mono * left * 32767, -32768, 32767)
-    pcm[:, 1] = np.clip(mono * right * 32767, -32768, 32767)
-    return pcm
+    """Resample so the sound plays as if its buffer ran at play_rate, then pan (audioop, no numpy)."""
+    import audioop
+    out, _ = audioop.ratecv(data + data[-2:] * 2, 2, 1, play_rate, mix_rate, None, 1, 0)
+    return audioop.tostereo(out, 2, left, right)
 
 
 def check_python():
@@ -63,7 +56,7 @@ def check_python():
 
 def check_audio(wav_dir):
     def run():
-        import numpy as np
+        import audioop
         import pygame
         mix_rate = 44100
         pygame.mixer.pre_init(mix_rate, -16, 2, 256)
@@ -77,7 +70,7 @@ def check_audio(wav_dir):
             play_rate = rate + offset
             # Pan +750 (hundredths of dB): left gain 10^(-750/2000), right 1 (GAME_SPEC 5.5).
             pcm = pitched_stereo(data, play_rate, mix_rate, 10 ** (-750 / 2000), 1.0)
-            snd = pygame.sndarray.make_sound(pcm)
+            snd = pygame.mixer.Sound(buffer=pcm)
             ch = pygame.mixer.Channel(0)
             ch.set_volume(0.0)  # silent test
             start = time.perf_counter()
@@ -85,11 +78,11 @@ def check_audio(wav_dir):
             while ch.get_busy():
                 time.sleep(0.001)
             heard = time.perf_counter() - start
-            expected = len(data) / play_rate
+            expected = len(data) / 2 / play_rate
             timings.append(f"{name}@{play_rate}Hz expected {expected*1000:.0f} ms, busy {heard*1000:.0f} ms")
         # Nine channels at once.
         data, rate = read_wav_mono(os.path.join(wav_dir, "brain21.wav"))
-        snd = pygame.sndarray.make_sound(pitched_stereo(data, rate, mix_rate, 1.0, 1.0))
+        snd = pygame.mixer.Sound(buffer=pitched_stereo(data, rate, mix_rate, 1.0, 1.0))
         chans = [pygame.mixer.Channel(i) for i in range(9)]
         for ch in chans:
             ch.set_volume(0.0)
@@ -99,7 +92,7 @@ def check_audio(wav_dir):
         pygame.mixer.quit()
         if busy != 9:
             raise RuntimeError(f"only {busy} of 9 channels busy")
-        return f"pygame-ce {pygame.version.ver}, numpy {np.__version__}, mixer {got}, 9 of 9 channels; " + "; ".join(timings)
+        return f"pygame-ce {pygame.version.ver}, audioop-lts {audioop.__name__}, mixer {got}, 9 of 9 channels; " + "; ".join(timings)
     return run
 
 

@@ -1,7 +1,7 @@
 ; Inno Setup 6 script: My Brain by Josh Kennedy, inspired by Jim Kitchen (Brain clone).
 ; Phase 10 (playbook 8.2). Compile (from anywhere):
 ;   "C:\Users\joshk\AppData\Local\Programs\Inno Setup 6\ISCC.exe" "<game folder>\release\installer.iss"
-; Optional defines: /DAppVersion=1.0.2  /DBuild64=<dist\brain folder>  /DBuild32=<dist\brain folder>
+; Optional defines: /DAppVersion=1.0.3  /DBuild64=<dist\brain folder>  /DBuild32=<dist\brain folder>
 ; Run clone\tools\build.ps1 first so the build folders are fresh. Output: brain-setup-<version>.exe in this folder.
 ;
 ; Design decisions (DECISIONS.md, P10):
@@ -15,7 +15,7 @@
 ;    folder with retries and leaves the rest to a restart-delete (fixesforgames.md B-U1, B-U2).
 
 #ifndef AppVersion
-  #define AppVersion "1.0.2"
+  #define AppVersion "1.0.3"
 #endif
 #ifndef Build64
   #define Build64 "C:\Users\joshk\.kitchensinc-builds\brain\64\dist\brain"
@@ -128,12 +128,12 @@ begin
   Sleep(800);                                          // handles are released a moment after a process has ended
 end;
 
-procedure RemoveProgramFolder;
+procedure RemoveFolderWithRetries(Folder: String);
 var
   I: Integer;
-  Folder: String;
 begin
-  Folder := ExpandConstant('{app}');
+  // Used for the program folder and for the settings folder: a virus scanner or the indexer can hold a file for a moment
+  // (one scripted verification run once left the settings folder behind after the "delete my settings" uninstall).
   for I := 1 to 20 do
   begin
     if not DirExists(Folder) then Exit;
@@ -154,7 +154,7 @@ begin
     Exit;
   end;
   if CurUninstallStep <> usPostUninstall then Exit;
-  RemoveProgramFolder;
+  RemoveFolderWithRetries(ExpandConstant('{app}'));
   Vendor := ExpandConstant('{userappdata}\Kitchensinc Revival');
   DataDir := Vendor + '\Brain';
   if not DirExists(DataDir) then Exit;
@@ -166,7 +166,7 @@ begin
       mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
   if DoDelete then
   begin
-    DelTree(DataDir, True, True, True);
+    RemoveFolderWithRetries(DataDir);
     RemoveDir(Vendor);   // only if nothing else (another Kitchensinc game) is in it
   end;
 end;

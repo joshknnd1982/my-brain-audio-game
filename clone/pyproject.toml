@@ -1,7 +1,7 @@
 # Brain clone. This is inspired by Jim Kitchen's Brain.
 [project]
 name = "brain-clone"
-version = "1.0.2"
+version = "1.0.3"
 description = "Brain, a sound toy for blind players. This is inspired by Jim Kitchen."
 requires-python = ">=3.14"
 

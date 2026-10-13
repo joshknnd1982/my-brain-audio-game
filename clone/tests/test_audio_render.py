@@ -1,25 +1,34 @@
 """Pitch and pan rendering. This is inspired by Jim Kitchen's Brain."""
+import audioop
+import math
 import os
+from array import array
 
-import numpy as np
 import pytest
 
-from brain.audio.render import (MIX_RATE, output_frames, pan_gains, render_stereo, resample,
-                                usable_frequency)
-from brain.audio.wavdata import Sampled, load_sound_file
+from brain.audio.render import (MIX_RATE, channel_peak, frames_of, output_frames, pan_gains, render_stereo,
+                                resample, usable_frequency)
+from brain.audio.wavdata import load_sound_file
 from brain.data import paths
+from wavmaker import floats, sampled, sine
 
 SHIPPED = os.path.join(paths.program_dir(), "assets", "sounds")
 
 
 def tone(freq, seconds, rate, amp=0.5):
-    t = np.arange(int(rate * seconds)) / rate
-    return Sampled((amp * np.sin(2 * np.pi * freq * t)).astype(np.float32).reshape(-1, 1), rate)
+    return sampled(sine(freq, seconds, rate, amp), rate)
 
 
-def dominant_hz(pcm_channel):
-    spectrum = np.abs(np.fft.rfft(pcm_channel * np.hanning(len(pcm_channel))))
-    return np.argmax(spectrum) * MIX_RATE / len(pcm_channel)
+def dominant_hz(samples):
+    """Pitch of a clean tone from its rising zero crossings (a sine has one per cycle)."""
+    rising = sum(1 for a, b in zip(samples, samples[1:]) if a < 0 <= b)
+    return rising * MIX_RATE / len(samples)
+
+
+def left_samples(pcm):
+    every = array("h")
+    every.frombytes(pcm)
+    return every[0::2]
 
 
 def test_pan_gains_attenuate_only_the_far_channel_by_pan_over_100_db():
@@ -38,7 +47,7 @@ def test_pan_table_gains_are_the_documented_decibel_steps():
     for p in table:
         near, far = sorted(pan_gains(p), reverse=True)
         assert near == 1.0
-        assert 20 * np.log10(far) == pytest.approx(-abs(p) / 100)
+        assert 20 * math.log10(far) == pytest.approx(-abs(p) / 100)
 
 
 def test_usable_frequency_range_is_directsounds():
@@ -60,52 +69,76 @@ def test_pitch_changes_by_the_frequency_ratio():
     source = tone(1000, 0.2, 11025)
     for new_freq in (11025 - 2000, 11025 + 1900):
         pcm = render_stereo(source, new_freq, 0, 1.0)
-        assert dominant_hz(pcm[:, 0].astype(np.float64)) == pytest.approx(1000 * new_freq / 11025, rel=0.02)
+        assert dominant_hz(left_samples(pcm)) == pytest.approx(1000 * new_freq / 11025, rel=0.02)
 
 
 def test_length_scales_inversely_with_frequency():
     source = tone(500, 0.1, 22050)
     assert output_frames(source.frames, 22050) == pytest.approx(0.1 * MIX_RATE, abs=2)
-    assert resample(source, 22050 * 2).shape[0] == pytest.approx(0.05 * MIX_RATE, abs=2)
-    assert resample(source, 11025).shape[0] == pytest.approx(0.2 * MIX_RATE, abs=2)
+    assert len(resample(source, 22050 * 2)) // 2 == pytest.approx(0.05 * MIX_RATE, abs=2)
+    assert len(resample(source, 11025)) // 2 == pytest.approx(0.2 * MIX_RATE, abs=2)
+
+
+def test_the_rendered_length_is_exactly_the_computed_length_at_any_pitch():
+    for freq in (100, 441, 4000, 9125, 22050, 88200, 200_000):
+        for frames in (1, 2, 3, 178, 881):
+            source = sampled([0.25] * frames, 8000)
+            assert frames_of(render_stereo(source, freq, 0, 1.0)) == output_frames(frames, freq), (freq, frames)
 
 
 def test_level_is_kept_at_full_volume_and_scales_with_volume():
     source = tone(500, 0.1, 22050, amp=0.5)
     full = render_stereo(source, 22050 - 100, 0, 1.0)
-    assert 16000 < np.abs(full).max() <= 16384
+    assert 16000 < audioop.max(full, 2) <= 16384
     half = render_stereo(source, 22050 - 100, 0, 0.5)
-    assert np.abs(half).max() == pytest.approx(np.abs(full).max() / 2, abs=2)
-    assert not render_stereo(source, 22050, 0, 0.0).any()
+    assert audioop.max(half, 2) == pytest.approx(audioop.max(full, 2) / 2, abs=2)
+    assert not any(render_stereo(source, 22050, 0, 0.0))
 
 
 def test_loud_boost_clips_without_wrapping():
     source = tone(500, 0.05, 22050, amp=0.9)
-    boosted = render_stereo(source, 22050, 0, 2.0)
-    assert boosted.max() == 32767 and boosted.min() == -32768
-    assert np.abs(np.diff(boosted[:, 0].astype(np.int32))).max() < 20000     # no wrap-around jumps
+    boosted = array("h")
+    boosted.frombytes(render_stereo(source, 22050, 0, 2.0))
+    assert max(boosted) == 32767 and min(boosted) == -32768
+    left = boosted[0::2]
+    assert max(abs(b - a) for a, b in zip(left, left[1:])) < 20000     # no wrap-around jumps
 
 
 def test_pan_shows_in_channel_levels():
     source = tone(500, 0.1, 22050)
     pcm = render_stereo(source, 22050 - 100, 600, 1.0)         # right: left is 6 dB down
-    left, right = np.abs(pcm[:, 0]).max(), np.abs(pcm[:, 1]).max()
-    assert left / right == pytest.approx(10 ** (-6 / 20), rel=0.02)
+    assert channel_peak(pcm, 0) / channel_peak(pcm, 1) == pytest.approx(10 ** (-6 / 20), rel=0.02)
     pcm = render_stereo(source, 22050 - 100, -1000, 1.0)
-    assert np.abs(pcm[:, 1]).max() / np.abs(pcm[:, 0]).max() == pytest.approx(10 ** (-10 / 20), rel=0.02)
+    assert channel_peak(pcm, 1) / channel_peak(pcm, 0) == pytest.approx(10 ** (-10 / 20), rel=0.02)
 
 
 def test_stereo_source_pans_as_balance():
-    data = np.stack([np.full(2000, 0.5), np.full(2000, -0.5)], axis=1).astype(np.float32)
-    pcm = render_stereo(Sampled(data, 22050), 22050, 0, 1.0)
-    assert pcm[100, 0] > 0 > pcm[100, 1]
+    source = sampled([(0.5, -0.5)] * 2000, 22050, channels=2)
+    every = array("h")
+    every.frombytes(render_stereo(source, 22050, 0, 1.0))
+    assert every[200] > 0 > every[201]                                  # frame 100: left positive, right negative
+
+
+def test_stereo_source_pan_attenuates_the_far_channel():
+    source = sampled([(0.5, 0.5)] * 2000, 22050, channels=2)
+    pcm = render_stereo(source, 22050, 600, 1.0)
+    assert channel_peak(pcm, 0) / channel_peak(pcm, 1) == pytest.approx(10 ** (-6 / 20), rel=0.02)
 
 
 def test_single_frame_and_extreme_frequencies_do_not_fail():
-    one = Sampled(np.array([[0.5]], np.float32), 8000)
-    assert render_stereo(one, 8000, 0, 1.0).shape[0] >= 1
-    assert render_stereo(tone(500, 0.01, 8000), 100, 0, 1.0).shape[0] > 0
-    assert render_stereo(tone(500, 0.01, 8000), 200_000, 0, 1.0).shape[0] > 0
+    one = sampled([0.5], 8000)
+    assert frames_of(render_stereo(one, 8000, 0, 1.0)) >= 1
+    assert frames_of(render_stereo(tone(500, 0.01, 8000), 100, 0, 1.0)) > 0
+    assert frames_of(render_stereo(tone(500, 0.01, 8000), 200_000, 0, 1.0)) > 0
+
+
+def test_the_last_sample_is_held_not_dropped():
+    """The float version held the final sample while its position ran past the end."""
+    source = sampled([0.0, 0.5, 0.5, 0.5], 8000)
+    left = left_samples(render_stereo(source, 8000, 0, 1.0))
+    assert left[-1] == pytest.approx(0.5 * 32767, abs=2)
+    left = left_samples(render_stereo(source, 1000, 0, 1.0))             # slowed down: the end is held
+    assert left[-1] == pytest.approx(0.5 * 32767, abs=2)
 
 
 def test_every_shipped_wav_renders_at_both_extremes_without_gaining_level():
@@ -115,5 +148,5 @@ def test_every_shipped_wav_renders_at_both_extremes_without_gaining_level():
             if not usable_frequency(freq):
                 continue
             pcm = render_stereo(sound, freq, 0, 1.0)
-            assert pcm.dtype == np.int16 and pcm.shape[1] == 2
-            assert np.abs(pcm).max() <= round(np.abs(sound.data).max() * 32767) + 1, (number, freq)
+            assert len(pcm) % 4 == 0 and len(pcm) > 0
+            assert audioop.max(pcm, 2) <= sound.peak + 2, (number, freq)

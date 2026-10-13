@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.3 (2026-10-13)
+- Much smaller again, with the same sound: pitch, panning and the generated beep no longer use numpy (28 MB of the install) but `audioop-lts`, a 30 KB package. The 64-bit program folder is 25 MB (was 54), the 32-bit one 21 MB (was 31), the installer 13.3 MB (was 22.9) and the portable zip 22.2 MB (was 39.6). Every sound is rendered within 2 of 32,768 steps of the numpy version (10,584 renders compared), so nothing can be heard to change.
+
 ## 1.0.2 (2026-10-13)
 Version 1.0.1 was built and tested but never published; its changes are part of this version.
 - Uninstalling removes the whole `My Brain` folder (it used to be left behind in Program Files when the game was still running, and was then "in use"). If My Brain is still running when you uninstall, the uninstaller closes it first. A file that is still in use at that moment is removed at the next restart, as a last resort.

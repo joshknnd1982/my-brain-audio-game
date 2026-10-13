@@ -2,13 +2,12 @@
 import os
 import wave
 
-import numpy as np
 import pytest
 
 from brain.audio import wavdata
 from brain.audio.wavdata import SoundLoadError, load_sound_file, parse_wav
 from brain.data import paths
-from wavmaker import sine, wav_bytes, write
+from wavmaker import floats, sine, wav_bytes, write
 
 DATA = os.path.join(os.path.dirname(__file__), "data")
 
@@ -16,9 +15,10 @@ DATA = os.path.join(os.path.dirname(__file__), "data")
 def test_8bit_is_unsigned_with_silence_at_128():
     sound = parse_wav(wav_bytes([0.0, 0.0, 0.5, -0.5], rate=8000, bits=8))
     assert sound.rate == 8000 and sound.channels == 1 and sound.frames == 4
-    assert sound.data[0, 0] == 0.0
-    assert sound.data[2, 0] == pytest.approx(0.5, abs=0.01)
-    assert sound.data[3, 0] == pytest.approx(-0.5, abs=0.01)
+    values = floats(sound)
+    assert values[0] == 0.0
+    assert values[2] == pytest.approx(0.5, abs=0.01)
+    assert values[3] == pytest.approx(-0.5, abs=0.01)
 
 
 @pytest.mark.parametrize("bits", [16, 24, 32])
@@ -26,27 +26,39 @@ def test_pcm_depths(bits):
     original = sine(440, 0.01, 22050)
     sound = parse_wav(wav_bytes(original, rate=22050, bits=bits))
     assert sound.frames == len(original)
-    assert np.allclose(sound.data[:, 0], original, atol=2e-4)
+    assert floats(sound) == pytest.approx(original, abs=2e-4)
 
 
 def test_float32_and_float64():
     original = sine(300, 0.01, 11025)
     for bits in (32, 64):
         sound = parse_wav(wav_bytes(original, bits=bits, fmt_tag=3))
-        assert np.allclose(sound.data[:, 0], original, atol=1e-6)
+        assert floats(sound) == pytest.approx(original, abs=6e-5)         # 16-bit samples: a step is 3e-5
 
 
 def test_extensible_header():
     original = sine(300, 0.01, 11025)
     sound = parse_wav(wav_bytes(original, bits=16, extensible=True))
-    assert np.allclose(sound.data[:, 0], original, atol=1e-3)
+    assert floats(sound) == pytest.approx(original, abs=1e-3)
 
 
 def test_stereo_keeps_both_channels():
-    both = np.stack([np.full(100, 0.25), np.full(100, -0.25)], axis=1)
+    both = [(0.25, -0.25)] * 100
     sound = parse_wav(wav_bytes(both, channels=2))
-    assert sound.channels == 2
-    assert sound.data[0, 0] == pytest.approx(0.25, abs=1e-3) and sound.data[0, 1] == pytest.approx(-0.25, abs=1e-3)
+    assert sound.channels == 2 and sound.frames == 100
+    assert floats(sound, 0)[0] == pytest.approx(0.25, abs=1e-3) and floats(sound, 1)[0] == pytest.approx(-0.25, abs=1e-3)
+
+
+def test_24_and_32_bit_and_8_bit_stereo_keep_their_levels():
+    for bits in (8, 24, 32):
+        sound = parse_wav(wav_bytes([(0.5, -0.25)] * 10, bits=bits, channels=2))
+        assert floats(sound, 0)[3] == pytest.approx(0.5, abs=0.01) and floats(sound, 1)[3] == pytest.approx(-0.25, abs=0.01), bits
+
+
+def test_float_wav_with_not_a_number_and_out_of_range_values():
+    sound = parse_wav(wav_bytes([float('nan'), 3.0, -3.0, 0.5], bits=32, fmt_tag=3))
+    values = sound.samples()
+    assert list(values[:3]) == [0, 32767, -32768] and values[3] == pytest.approx(16384, abs=1)
 
 
 def test_extra_chunk_with_odd_size_is_skipped():
@@ -93,7 +105,7 @@ def test_random_bytes_in_a_wav_file(tmp_path):
 
 
 def test_very_long_sound_is_refused(tmp_path):
-    path = write(tmp_path / "long.wav", np.zeros(8000 * 31), rate=8000, bits=8)
+    path = write(tmp_path / "long.wav", [0.0] * (8000 * 31), rate=8000, bits=8)
     with pytest.raises(SoundLoadError, match="long"):
         load_sound_file(path)
 
@@ -123,7 +135,7 @@ def test_ogg_flac_mp3_need_the_mixer_and_decode_with_it(monkeypatch):
             sound = load_sound_file(os.path.join(DATA, f"tone.{ext}"))
             assert sound.rate == 44100 and sound.channels == 1
             assert 0.09 < sound.seconds < 0.2
-            assert np.abs(sound.data).max() > 0.1
+            assert sound.peak > 0.1 * 32768
     finally:
         pygame.mixer.quit()
 

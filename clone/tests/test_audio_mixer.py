@@ -61,7 +61,7 @@ def test_nine_slots_and_the_beep_channel_play_at_once(audio):
     pick = audio.library.pick_number(36)
     for slot in range(9):
         audio.play(slot, pick, pick.rate, 0)
-    audio.output.play(BEEP_SLOT, __import__("numpy").zeros((4410, 2), "int16"))
+    audio.output.play(BEEP_SLOT, bytes(4410 * 4))
     assert sum(audio.busy(s) for s in range(10)) == 10
     audio.stop_all()
     assert sum(audio.busy(s) for s in range(9)) == 0 and audio.busy(BEEP_SLOT)

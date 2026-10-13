@@ -1,17 +1,23 @@
 """The audio layer the game logic uses, with a silent timed output. This is inspired by Jim Kitchen's Brain."""
-import numpy as np
+import audioop
+
 import pytest
 
 from brain.audio import engine
 from brain.audio.engine import Audio
 from brain.audio.library import Pick, SoundLibrary, shipped_sounds_dir
 from brain.audio.output import BEEP_SLOT, TimedOutput
-from brain.audio.render import MIX_RATE
+from brain.audio.render import MIX_RATE, channel_peak, frames_of
 from brain.audio.soundsconfig import DEFAULT_TEXT, FILE_NAME
 from brain.audio.tonegen import GENERATED_SOUNDS, generated, synthesize, write_wav, Segment
 from brain.audio.wavdata import Sampled, load_sound_file
 from brain.data.settings import AudioSettings
-from wavmaker import sine, write
+from wavmaker import floats, sine, write
+
+
+def peak(pcm):
+    """Largest absolute sample of rendered stereo sound."""
+    return audioop.max(pcm, 2)
 
 
 class Clock:
@@ -98,24 +104,23 @@ def test_effects_volume_and_sound_trim_scale_the_level(rig):
     audio, output, clock, lib, *_ = rig
     pick = lib.pick_number(9)
     audio.play(0, pick, pick.rate + 100, 0)
-    full = int(np.abs(output.played[-1][1]).max())
+    full = peak(output.played[-1][1])
     audio.settings.effects_volume = 50
     audio.play(0, pick, pick.rate + 100, 0)
-    assert int(np.abs(output.played[-1][1]).max()) == pytest.approx(full / 2, abs=2)
+    assert peak(output.played[-1][1]) == pytest.approx(full / 2, abs=2)
     trimmed = Pick(pick.sound_id, pick.sound, pick.size, pick.source, pick.path, volume=0.5)
     audio.play(0, trimmed, pick.rate + 100, 0)
-    assert int(np.abs(output.played[-1][1]).max()) == pytest.approx(full / 4, abs=2)
+    assert peak(output.played[-1][1]) == pytest.approx(full / 4, abs=2)
     audio.settings.effects_volume = 0
     audio.play(0, pick, pick.rate + 100, 0)
-    assert not output.played[-1][1].any()
+    assert not any(output.played[-1][1])
 
 
 def test_default_volume_leaves_the_file_unchanged(rig):
     audio, output, clock, lib, *_ = rig
     pick = lib.pick_number(21)
     audio.play(0, pick, pick.rate + 1, 0)
-    peak = int(np.abs(output.played[-1][1]).max())
-    assert peak == pytest.approx(np.abs(pick.sound.data).max() * 32767, abs=3)
+    assert peak(output.played[-1][1]) == pytest.approx(pick.sound.peak * 32767 / 32768, abs=6)   # integer resampling: a few steps of 32,768
 
 
 def test_pan_reaches_the_output(rig):
@@ -123,14 +128,14 @@ def test_pan_reaches_the_output(rig):
     pick = lib.pick_number(9)
     audio.play(0, pick, pick.rate + 100, -750)
     pcm = output.played[-1][1]
-    assert np.abs(pcm[:, 1]).max() == pytest.approx(np.abs(pcm[:, 0]).max() * 10 ** (-7.5 / 20), rel=0.02)
+    assert channel_peak(pcm, 1) == pytest.approx(channel_peak(pcm, 0) * 10 ** (-7.5 / 20), rel=0.02)
 
 
 def test_silent_wav_brain7_plays_as_a_silent_sound_of_its_length(rig):
     audio, output, clock, lib, *_ = rig
     pick = lib.pick_number(7)
     seconds = audio.play(0, pick, pick.rate, 0)
-    assert seconds == pytest.approx(0.049, abs=0.001) and not output.played[-1][1].any()
+    assert seconds == pytest.approx(0.049, abs=0.001) and not any(output.played[-1][1])
     assert audio.busy(0)                                             # silent but it takes its time
 
 
@@ -145,7 +150,7 @@ def test_exit_beep_falls_back_to_the_generated_blip(rig):
     beeper.works = False
     assert audio.beep_exit() is True
     slot, pcm = output.played[-1]
-    assert slot == BEEP_SLOT and pcm.shape[0] == pytest.approx(0.080 * MIX_RATE, abs=2)
+    assert slot == BEEP_SLOT and frames_of(pcm) == pytest.approx(0.080 * MIX_RATE, abs=2)
     assert audio.busy(BEEP_SLOT)
 
 
@@ -155,7 +160,7 @@ def test_exit_beep_player_file_replaces_both(rig):
     audio.refresh()
     audio.beep_exit()
     assert beeper.calls == 0 and output.played[-1][0] == BEEP_SLOT
-    assert output.played[-1][1].shape[0] == pytest.approx(0.05 * MIX_RATE, abs=2)
+    assert frames_of(output.played[-1][1]) == pytest.approx(0.05 * MIX_RATE, abs=2)
 
 
 def test_exit_beep_switched_off_is_silent_and_skips_the_system_sound(rig):
@@ -163,7 +168,7 @@ def test_exit_beep_switched_off_is_silent_and_skips_the_system_sound(rig):
     (tmp_path / "player" / FILE_NAME).write_text(DEFAULT_TEXT + "beep_exit = off\n", encoding="utf-8")
     audio.refresh()
     audio.beep_exit()
-    assert beeper.calls == 0 and not output.played[-1][1].any()
+    assert beeper.calls == 0 and not any(output.played[-1][1])
 
 
 def test_system_beeper_calls_messagebeep_zero(monkeypatch):
@@ -197,21 +202,22 @@ def test_unexpected_start_up_failure_is_also_caught(tmp_path, monkeypatch):
 
 def test_generated_beep_checks():
     blip = generated("beep_exit")
-    data = blip.data[:, 0]
+    data = floats(blip)
     assert blip.rate == 44100 and blip.seconds == pytest.approx(0.080, abs=0.0005)
-    assert 0.2 < np.abs(data).max() < 0.5                            # audible, far from clipping
+    assert 0.2 < max(abs(v) for v in data) < 0.5                     # audible, far from clipping
     assert abs(data[0]) < 0.01 and abs(data[-1]) < 0.05              # no click at either end
-    crossings = np.count_nonzero(np.diff(np.signbit(data[200:-200])))
-    assert crossings / 2 / ((len(data) - 400) / MIX_RATE) == pytest.approx(880, rel=0.03)   # main pitch 880 Hz
-    assert np.array_equal(data, generated("beep_exit").data[:, 0])   # deterministic
+    middle = data[200:-200]
+    crossings = sum(1 for a, b in zip(middle, middle[1:]) if (a < 0) != (b < 0))
+    assert crossings / 2 / (len(middle) / MIX_RATE) == pytest.approx(880, rel=0.03)   # main pitch 880 Hz
+    assert blip.pcm == generated("beep_exit").pcm                    # deterministic
 
 
 def test_synthesis_waveforms_sweeps_and_rests():
     segments = (Segment("sine", 440, 880, 50, 0.5), Segment("triangle", 300, 300, 20, 0.0),
                 Segment("noise", 0, 0, 20, 0.3), Segment("square", 200, 200, 20, 0.5))
     sound = synthesize(segments)
-    assert sound.seconds == pytest.approx(0.110, abs=0.001) and np.abs(sound.data).max() <= 0.5
-    assert not sound.data[int(0.052 * MIX_RATE):int(0.068 * MIX_RATE)].any()          # the rest is silent
+    assert sound.seconds == pytest.approx(0.110, abs=0.001) and sound.peak <= 0.5 * 32768
+    assert not any(sound.samples()[int(0.052 * MIX_RATE):int(0.068 * MIX_RATE)])      # the rest is silent
     with pytest.raises(ValueError):
         synthesize((Segment("flute", 1, 1, 10, 1.0),))
     assert set(GENERATED_SOUNDS) == {"beep_exit"}
@@ -222,4 +228,4 @@ def test_generated_sound_exports_to_a_playable_wav(tmp_path):
     write_wav(str(path), generated("beep_exit"))
     again = load_sound_file(str(path))
     assert again.rate == 44100 and again.frames == generated("beep_exit").frames
-    assert np.allclose(again.data, generated("beep_exit").data, atol=1e-4)
+    assert again.pcm == generated("beep_exit").pcm and again.channels == 1

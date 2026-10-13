@@ -11,5 +11,5 @@ Packages:
   data    per-user paths, settings, logging
 """
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 TITLE = "Brain"

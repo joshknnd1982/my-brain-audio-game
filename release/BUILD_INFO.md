@@ -4,12 +4,12 @@ Made by clone/tools/build.ps1 (PyInstaller, onedir, windowed); recorded by clone
 
 ## 64-bit
 
-- Tools: python 3.14.8, bits 64, pyinstaller 6.22.3, pygame-ce 2.5.8, numpy 2.5.4
-- brain.exe: 5576748 bytes, SHA-256 61fcf9282ea6bd02210a5469fd3d0bc061ef000ede3c64eb0256644e8999cd91
-- Files: 196, 56.0 MB; full list with hashes in build_manifest_64.txt
+- Tools: python 3.14.8, bits 64, pyinstaller 6.22.3, pygame-ce 2.5.8, audioop-lts 0.2.2
+- brain.exe: 2920675 bytes, SHA-256 c617567366abe191c7ae420f2f4cbac91f6ab103eeb3e5b2c6e840a60ee30c8d
+- Files: 154, 25.4 MB; full list with hashes in build_manifest_64.txt
 
 ## 32-bit
 
-- Tools: python 3.14.8, bits 32, pyinstaller 6.22.3, pygame-ce 2.5.8, numpy 2.5.4
-- brain.exe: 5533165 bytes, SHA-256 31ff787513eb29b8ab742918d2c2bb1d1e44c71e6541cefb4ff4cb754bd80b59
-- Files: 149, 31.1 MB; full list with hashes in build_manifest_32.txt
+- Tools: python 3.14.8, bits 32, pyinstaller 6.22.3, pygame-ce 2.5.8, audioop-lts 0.2.2
+- brain.exe: 2877667 bytes, SHA-256 07d695a713ae5cc528aeee754c48b56e9f0786cfff20b37feaa1e506138fc657
+- Files: 110, 20.8 MB; full list with hashes in build_manifest_32.txt

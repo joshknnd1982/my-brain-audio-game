@@ -13,8 +13,8 @@ Python 3.14.8, Python Software Foundation License. https://www.python.org/
 pygame-ce 2.5.8 (with SDL 2 and SDL_mixer), GNU LGPL 2.1 (SDL: zlib license). Sound output.
   https://pyga.me/ and https://www.libsdl.org/
 
-numpy 2.5.4, BSD-3-Clause (and other permissive licenses for bundled parts). Pitch changes.
-  https://numpy.org/
+audioop-lts 0.2.2, Python Software Foundation License (the standard-library audioop module that Python 3.13 removed, as a 30 KB package). Pitch and pan.
+  https://pypi.org/project/audioop-lts/
 
 pywin32 312, Python Software Foundation License. Speech through SAPI 5, Windows calls.
   https://github.com/mhammond/pywin32

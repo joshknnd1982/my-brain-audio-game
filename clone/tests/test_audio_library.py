@@ -2,7 +2,6 @@
 import os
 import shutil
 
-import numpy as np
 import pytest
 
 from brain.audio.library import SoundLibrary, shipped_sounds_dir, sound_id
@@ -22,7 +21,7 @@ def make_library(tmp_path, shipped_count=3):
 
 
 def peak(pick):
-    return float(np.abs(pick.sound.data).max())
+    return pick.sound.peak / 32768.0
 
 
 def test_real_shipped_set_has_42_sounds_and_matches_the_files():
@@ -92,7 +91,7 @@ def test_sounds_txt_can_name_another_file_trim_volume_and_switch_off(tmp_path):
     lib.refresh()
     one, two, three = lib.pick_number(1), lib.pick_number(2), lib.pick_number(3)
     assert one.source == "player" and one.rate == 22050 and one.volume == 0.5
-    assert two.source == "off" and two.sound is not None and not two.sound.data.any()
+    assert two.source == "off" and two.sound is not None and not any(two.sound.pcm)
     assert two.sound.frames == 220 and two.size == os.path.getsize(shipped / "brain2.wav")   # keeps its place and length
     assert three.source == "original" and three.volume == 0.25
 

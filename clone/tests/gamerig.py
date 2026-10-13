@@ -1,7 +1,6 @@
 """Test rig for the game logic: virtual clock, scripted keys and random numbers, fake library. This is inspired by Jim Kitchen's Brain."""
 import re
-
-import numpy as np
+from array import array
 
 from brain.audio.engine import Audio
 from brain.audio.library import Pick
@@ -50,7 +49,7 @@ NO_FILE = "no file"
 
 def make_pick(number, rate=11025, frames=1000, size=None, path="brain.wav", sound=True, source="original"):
     """A Pick as the library would answer: sound None is the original's failed buffer."""
-    data = Sampled(np.full((frames, 1), 0.1, dtype=np.float32), rate) if sound else None
+    data = Sampled(array("h", [3277] * frames).tobytes(), rate, 1) if sound else None      # 0.1 of full scale
     size = frames if size is None else (None if size == NO_FILE else size)
     return Pick(f"brain{number:02d}", data, size, source, path)
 

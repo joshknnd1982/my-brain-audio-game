@@ -89,7 +89,7 @@ def test_numpad_digits_are_accepted_and_echoed_as_digits():
 
 def test_every_main_menu_return_stops_the_nine_slots():
     rig = Rig(library(), answers=[ESC])
-    rig.audio.output.play(4, __import__("numpy").zeros((44100, 2), dtype="int16"))
+    rig.audio.output.play(4, bytes(44100 * 4))
     assert rig.audio.busy(4)
     rig.game.run()
     assert not rig.audio.busy(4)

@@ -9,8 +9,8 @@ Press a number from 1 to 9 to choose how many sounds play at once, pick a pannin
 
 ## Download and install
 Get the files from the [Releases page](https://github.com/joshknnd1982/my-brain-audio-game/releases).
-- `brain-setup-1.0.2.exe`: the installer. One file for 64-bit and 32-bit Windows 10 or 11. It installs for you alone by default (no administrator rights needed) and offers an all-users install. It adds a Start menu entry and, if you tick it, a desktop shortcut. Uninstall it from Windows' Apps list; it removes the whole program folder (and closes My Brain first if it is running) and asks whether to delete your settings too (the default is to keep them).
-- `brain-portable-1.0.2.zip`: no installation. Unpack it anywhere and run `brain.exe` from the `64-bit` folder (or `32-bit` on 32-bit Windows).
+- `brain-setup-1.0.3.exe`: the installer. One file for 64-bit and 32-bit Windows 10 or 11. It installs for you alone by default (no administrator rights needed) and offers an all-users install. It adds a Start menu entry and, if you tick it, a desktop shortcut. Uninstall it from Windows' Apps list; it removes the whole program folder (and closes My Brain first if it is running) and asks whether to delete your settings too (the default is to keep them).
+- `brain-portable-1.0.3.zip`: no installation. Unpack it anywhere and run `brain.exe` from the `64-bit` folder (or `32-bit` on 32-bit Windows).
 - `checksums.txt`: SHA-256 of both files.
 
 The files are not code-signed, because signing costs money. Windows SmartScreen may warn when you start the installer: choose "More info", then "Run anyway".

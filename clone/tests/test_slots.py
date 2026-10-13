@@ -1,9 +1,9 @@
 """The nine slots: start rule, new-sound statements, failure path (GAME_SPEC 5.3, 5.4). This is inspired by Jim Kitchen's Brain."""
-import numpy as np
 import pytest
 
 from brain.game.panning import MODE_NONE, MODE_STATIONARY
 from brain.game.slots import file_bytes, pitch_offset
+from brain.audio.render import channel_peak, frames_of
 from gamerig import NO_FILE, Rig, Scripted, StubLibrary, make_pick
 
 
@@ -36,7 +36,7 @@ def test_first_visit_always_starts_and_computes_the_end_time():
     assert len(rig.output.played) == 1 and rig.output.played[0][0] == 0
     assert rig.audio.busy(0)
     # the real length at the new pitch is 1000 / 12025 s: half the cut-off time
-    assert rig.output.played[0][1].shape[0] / 44100 == pytest.approx(1000 / 12025, abs=0.001)
+    assert frames_of(rig.output.played[0][1]) / 44100 == pytest.approx(1000 / 12025, abs=0.001)
 
 
 def test_number_draw_covers_the_pool():
@@ -75,7 +75,7 @@ def test_shipped_style_files_are_never_cut_off_early():
     rig = rig_with({1: make_pick(1, rate=11025, frames=1000)}, [0.0, 0.0])      # r = -20, lowest pitch
     slots = rig.game.slots
     slots.visit(0, MODE_NONE)
-    real = rig.output.played[0][1].shape[0] / 44100
+    real = frames_of(rig.output.played[0][1]) / 44100
     assert slots.end_time[0] - rig.clock() > 1.9 * real
 
 
@@ -92,8 +92,8 @@ def test_pan_follows_the_mode():
     # 42 wavs; the pick for number 4 under stationary panning goes to index 1 = -750: left full, right 10^(-750/2000)
     rig = rig_with({4: make_pick(4, rate=11025, frames=2000)}, [0.08, 0.75], pool=42)
     rig.game.slots.visit(0, MODE_STATIONARY)
-    pcm = rig.output.played[0][1].astype(np.int64)
-    left, right = np.abs(pcm[:, 0]).max(), np.abs(pcm[:, 1]).max()
+    pcm = rig.output.played[0][1]
+    left, right = channel_peak(pcm, 0), channel_peak(pcm, 1)
     assert right / left == pytest.approx(10 ** (-750 / 2000), abs=0.01)
 
 

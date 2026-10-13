@@ -1,4 +1,4 @@
-"""Reading sound files into float samples. This is inspired by Jim Kitchen's Brain.
+"""Reading sound files into 16-bit samples. This is inspired by Jim Kitchen's Brain.
 
 Any rate, depth, channel count (1 or 2) and length is accepted (playbook 7.7); empty, cut-off,
 unreadable or very long files raise SoundLoadError so the caller can fall back to the next
@@ -6,14 +6,19 @@ choice in the resolution chain. Wav files are parsed here (PCM 8/16/24/32 bit, f
 WAVE_FORMAT_EXTENSIBLE); other wav codecs and ogg, flac and mp3 go through pygame's decoder,
 which hands back the mixer's own rate (44,100 Hz), so for those files the pitch step of
 GAME_SPEC 5.3 is relative to 44,100 Hz instead of the file's own rate.
+
+No numpy (version 1.0.3; the user chose this on 2026-10-13 after a trial; numpy was 28 MB of the install; tag brain-1.0.2-numpy is the numpy version): samples are plain bytes of
+16-bit PCM and the sample math is `audioop` (the package audioop-lts, 30 KB, because Python 3.13
+dropped the standard module). Byte order is the machine's own, little-endian on every platform
+this clone targets.
 """
 from __future__ import annotations
 
+import audioop
 import os
 import struct
+from array import array
 from dataclasses import dataclass
-
-import numpy as np
 
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_SECONDS = 30.0            # "very long" files fall back (7.7); the shipped wavs are at most 250 ms
@@ -27,25 +32,33 @@ class SoundLoadError(Exception):
 
 @dataclass(frozen=True)
 class Sampled:
-    """Decoded sound: float32 samples in -1..1, shape (frames, channels), channels 1 or 2."""
-    data: np.ndarray
+    """Decoded sound: 16-bit signed PCM, interleaved, channels 1 or 2 (the format the mixer takes)."""
+    pcm: bytes
     rate: int
+    channels: int = 1
 
     @property
     def frames(self) -> int:
-        return int(self.data.shape[0])
-
-    @property
-    def channels(self) -> int:
-        return int(self.data.shape[1])
+        return len(self.pcm) // (2 * self.channels)
 
     @property
     def seconds(self) -> float:
         return self.frames / self.rate
 
+    @property
+    def peak(self) -> int:
+        """Largest absolute sample, 0 to 32768."""
+        return audioop.max(self.pcm, 2) if self.pcm else 0
+
+    def samples(self, channel: int = 0) -> array:
+        """One channel as an array of 16-bit ints (for tests and tools; the program works on the bytes)."""
+        every = array("h")
+        every.frombytes(self.pcm)
+        return every[channel::self.channels]
+
     def silenced(self) -> "Sampled":
         """Same length and rate, no sound (a sound switched off keeps its place in the pool)."""
-        return Sampled(np.zeros_like(self.data), self.rate)
+        return Sampled(bytes(len(self.pcm)), self.rate, self.channels)
 
 
 def load_sound_file(path: str) -> Sampled:
@@ -130,22 +143,29 @@ def parse_wav(raw: bytes) -> Sampled:
     frames = len(data) // frame_bytes
     if frames == 0:
         raise SoundLoadError("the file holds no sound")
-    chunk = data[:frames * frame_bytes]
+    chunk = bytes(data[:frames * frame_bytes])
     if tag == 3:
-        samples = np.frombuffer(chunk, "<f4" if bits == 32 else "<f8").astype(np.float32)
-        samples = np.clip(np.nan_to_num(samples), -1.0, 1.0)
+        pcm = _float_to_pcm16(chunk, bits)
     elif bits == 8:
-        samples = (np.frombuffer(chunk, np.uint8).astype(np.float32) - 128.0) / 128.0
+        pcm = audioop.lin2lin(audioop.bias(chunk, 1, 128), 1, 2)    # unsigned with silence at 128 -> signed -> 16 bit
     elif bits == 16:
-        samples = np.frombuffer(chunk, "<i2").astype(np.float32) / 32768.0
+        pcm = chunk
     elif bits == 24:
-        b = np.frombuffer(chunk, np.uint8).reshape(-1, 3).astype(np.int32)
-        value = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
-        value = np.where(value >= 1 << 23, value - (1 << 24), value)
-        samples = value.astype(np.float32) / float(1 << 23)
+        pcm = audioop.lin2lin(chunk, 3, 2)
     else:
-        samples = np.frombuffer(chunk, "<i4").astype(np.float32) / float(1 << 31)
-    return Sampled(np.ascontiguousarray(samples.reshape(frames, channels)), int(rate))
+        pcm = audioop.lin2lin(chunk, 4, 2)
+    return Sampled(pcm, int(rate), channels)
+
+
+def _float_to_pcm16(chunk: bytes, bits: int) -> bytes:
+    """32 or 64-bit float samples to 16-bit. Not a number counts as silence, out of range as full scale."""
+    values = array("f" if bits == 32 else "d")
+    values.frombytes(chunk)
+    out = array("h")
+    for v in values:
+        v = 0.0 if v != v else max(-1.0, min(1.0, v))
+        out.append(max(-32768, min(32767, int(round(v * 32768.0)))))
+    return out.tobytes()
 
 
 def _decode_with_pygame(path: str, what: str) -> Sampled:
@@ -154,14 +174,14 @@ def _decode_with_pygame(path: str, what: str) -> Sampled:
     if not pygame.mixer.get_init():
         raise SoundLoadError(f"{what} needs the sound system, which is not running")
     try:
-        sound = pygame.mixer.Sound(path)
-        pcm = pygame.sndarray.array(sound)
+        raw = pygame.mixer.Sound(path).get_raw()
     except pygame.error as exc:
         raise SoundLoadError(f"cannot decode {what}: {exc}") from exc
-    rate = pygame.mixer.get_init()[0]
-    if pcm.ndim == 1:
-        pcm = pcm.reshape(-1, 1)
-    samples = pcm.astype(np.float32) / 32768.0
-    if samples.shape[1] == 2 and np.array_equal(pcm[:, 0], pcm[:, 1]):
-        samples = samples[:, :1]              # a mono file the mixer doubled
-    return Sampled(np.ascontiguousarray(samples), int(rate))
+    rate, fmt, channels = pygame.mixer.get_init()
+    if fmt != -16 or channels not in (1, 2):
+        raise SoundLoadError(f"the mixer's format {fmt}, {channels} channels cannot be used for {what}")
+    if channels == 2:
+        left, right = audioop.tomono(raw, 2, 1, 0), audioop.tomono(raw, 2, 0, 1)
+        if left == right:
+            return Sampled(left, int(rate), 1)    # a mono file the mixer doubled
+    return Sampled(bytes(raw), int(rate), int(channels))

@@ -12,7 +12,7 @@ import re
 import pytest
 
 from brain.audio.library import SoundLibrary, shipped_sounds_dir
-from brain.audio.render import MIX_RATE, pan_gains
+from brain.audio.render import MIX_RATE, frames_of, pan_gains
 from brain.data.settings import Settings
 from brain.game import texts
 from brain.game.keys import key_char
@@ -288,7 +288,7 @@ def test_the_cut_off_never_ends_a_shipped_sound_early(shipped):
             rig.game.slots._start_sound(0, 1)
             played = rig.output.played
             assert len(played) == 1
-            real = played[0][1].shape[0] / MIX_RATE
+            real = frames_of(played[0][1]) / MIX_RATE
             lead = rig.game.slots.end_time[0] - rig.clock()
             worst = min(worst, lead / real)
     assert worst >= 2.04 - 0.01                                              # the mixer rounds length to a whole frame

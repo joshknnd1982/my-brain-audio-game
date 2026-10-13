@@ -16,7 +16,7 @@ from typing import Callable, Protocol
 from ..data.settings import AudioSettings
 from .library import Pick, SoundLibrary
 from .output import BEEP_SLOT, SLOT_COUNT, Output, OutputError, PygameOutput, TimedOutput
-from .render import MIX_RATE, render_stereo, usable_frequency
+from .render import MIX_RATE, frames_of, render_stereo, usable_frequency
 from .tonegen import generated
 
 log = logging.getLogger("brain.audio")
@@ -101,7 +101,7 @@ class Audio:
         except Exception:
             log.exception("the mixer could not play %s", pick.sound_id)
             return 0.0
-        return pcm.shape[0] / MIX_RATE
+        return frames_of(pcm) / MIX_RATE
 
     def busy(self, slot: int) -> bool:
         """The original's GetStatus = playing. A failing mixer counts as stopped (the slot starts its next sound)."""

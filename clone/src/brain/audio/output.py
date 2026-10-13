@@ -12,9 +12,7 @@ import threading
 import time
 from typing import Callable, Protocol
 
-import numpy as np
-
-from .render import MIX_RATE
+from .render import MIX_RATE, STEREO_FRAME
 
 log = logging.getLogger("brain.audio")
 
@@ -24,7 +22,7 @@ CHANNELS = 10
 
 
 class Output(Protocol):
-    def play(self, slot: int, pcm: np.ndarray) -> None: ...
+    def play(self, slot: int, pcm: bytes) -> None: ...      # 16-bit stereo PCM at MIX_RATE (render.render_stereo)
     def busy(self, slot: int) -> bool: ...
     def stop(self, slot: int) -> None: ...
     def stop_all(self) -> None: ...
@@ -54,9 +52,9 @@ class PygameOutput:
         self.volume = 1.0       # tools set 0.0 to measure a real device without a sound
         log.info("mixer started: %s, buffer %d frames", pygame.mixer.get_init(), size)
 
-    def play(self, slot: int, pcm: np.ndarray) -> None:
+    def play(self, slot: int, pcm: bytes) -> None:
         try:
-            sound = self._pygame.sndarray.make_sound(np.ascontiguousarray(pcm))
+            sound = self._pygame.mixer.Sound(buffer=pcm)     # raw samples in the mixer's own format
             channel = self._channels[slot]
             channel.set_volume(self.volume)
             channel.play(sound)      # the channel keeps its own reference to the sound
@@ -97,11 +95,11 @@ class TimedOutput:
         self._clock = clock
         self._ends = [0.0] * CHANNELS
         self._lock = threading.Lock()
-        self.played: list[tuple[int, np.ndarray]] = []
+        self.played: list[tuple[int, bytes]] = []
 
-    def play(self, slot: int, pcm: np.ndarray) -> None:
+    def play(self, slot: int, pcm: bytes) -> None:
         with self._lock:
-            self._ends[slot] = self._clock() + pcm.shape[0] / MIX_RATE
+            self._ends[slot] = self._clock() + len(pcm) / STEREO_FRAME / MIX_RATE
             self.played.append((slot, pcm))
 
     def busy(self, slot: int) -> bool:
