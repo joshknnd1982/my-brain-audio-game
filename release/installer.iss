@@ -1,7 +1,7 @@
 ; Inno Setup 6 script: My Brain by Josh Kennedy, inspired by Jim Kitchen (Brain clone).
 ; Phase 10 (playbook 8.2). Compile (from anywhere):
 ;   "C:\Users\joshk\AppData\Local\Programs\Inno Setup 6\ISCC.exe" "<game folder>\release\installer.iss"
-; Optional defines: /DAppVersion=1.0.0  /DBuild64=<dist\brain folder>  /DBuild32=<dist\brain folder>
+; Optional defines: /DAppVersion=1.0.2  /DBuild64=<dist\brain folder>  /DBuild32=<dist\brain folder>
 ; Run clone\tools\build.ps1 first so the build folders are fresh. Output: brain-setup-<version>.exe in this folder.
 ;
 ; Design decisions (DECISIONS.md, P10):
@@ -11,9 +11,11 @@
 ;    %APPDATA%\Kitchensinc Revival\Brain; install, update and uninstall never touch them
 ;    (the uninstaller asks, default keep).
 ;  - An update removes the old _internal folder first (stale library files), never assets\sounds' extras.
+;  - Uninstall removes the WHOLE program folder: it stops a copy that is still running from that folder, deletes the
+;    folder with retries and leaves the rest to a restart-delete (fixesforgames.md B-U1, B-U2).
 
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.0.2"
 #endif
 #ifndef Build64
   #define Build64 "C:\Users\joshk\.kitchensinc-builds\brain\64\dist\brain"
@@ -65,20 +67,24 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
-Source: "{#Build64}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Check: Is64BitInstallMode
-Source: "{#Build32}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Check: not Is64BitInstallMode
+; uninsrestartdelete: a file still in use when the uninstaller runs is removed at the next restart (last resort only).
+Source: "{#Build64}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion uninsrestartdelete; Check: Is64BitInstallMode
+Source: "{#Build32}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion uninsrestartdelete; Check: not Is64BitInstallMode
 
 [Icons]
-Name: "{group}\My Brain"; Filename: "{app}\brain.exe"
+; WorkingDir is a neutral folder, never the program folder: a process whose working directory is inside a folder keeps
+; that folder locked ("folder in use") even when nothing shows in Task Manager (fixesforgames.md B-U1).
+Name: "{group}\My Brain"; Filename: "{app}\brain.exe"; WorkingDir: "{userdocs}"
 Name: "{group}\My Brain read me"; Filename: "{app}\README.txt"
-Name: "{group}\Uninstall My Brain"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\My Brain"; Filename: "{app}\brain.exe"; Tasks: desktopicon
+Name: "{group}\Uninstall My Brain"; Filename: "{uninstallexe}"; WorkingDir: "{userdocs}"
+Name: "{autodesktop}\My Brain"; Filename: "{app}\brain.exe"; WorkingDir: "{userdocs}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\brain.exe"; Description: "Start My Brain now"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\brain.exe"; Description: "Start My Brain now"; WorkingDir: "{userdocs}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\_internal"
+; The whole program folder: nothing of the program is meant to stay in it (settings, own sounds and the log are in AppData).
+Type: filesandordirs; Name: "{app}"
 
 [Code]
 // Uninstall: the program goes, the player's settings, own sounds and log stay unless the player says yes.
@@ -93,12 +99,62 @@ begin
     if CompareText(ParamStr(I), '/DELETEUSERDATA=1') = 0 then Result := True;
 end;
 
+// ----- The program folder must go completely, and at once (owner bug 2026-10-13: "My Brain" was left in Program Files
+// and then "folder in use" until a restart). A copy that is still running is stopped before files are removed; the
+// folder is removed with retries because a virus scanner or Explorer can hold a file for a moment; whatever is still
+// in use after that is removed at the next restart by the uninsrestartdelete flag of [Files].
+function PowerShellExe: String;
+begin
+  if IsWin64 then
+    Result := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe')   // the 32-bit uninstaller must start the 64-bit PowerShell to see 64-bit processes
+  else
+    Result := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+end;
+
+procedure StopRunningCopies;
+var
+  ResultCode: Integer;
+  Folder: String;
+begin
+  // Only processes whose program file is inside the folder being removed (a portable copy elsewhere is left alone).
+  // The uninstaller's own first-phase process (unins000.exe, still waiting) is not touched: killing it made the
+  // uninstaller report exit code -1 although the uninstall had worked.
+  Folder := RemoveBackslash(ExpandConstant('{app}'));
+  StringChangeEx(Folder, '''', '''''', True);          // a quote in the path must not end the PowerShell string
+  Exec(PowerShellExe,
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-Process | Where-Object { $_.Path -and $_.ProcessName -notlike ''unins*'' -and $_.Path.StartsWith(''' +
+    Folder + '\'', [System.StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(800);                                          // handles are released a moment after a process has ended
+end;
+
+procedure RemoveProgramFolder;
+var
+  I: Integer;
+  Folder: String;
+begin
+  Folder := ExpandConstant('{app}');
+  for I := 1 to 20 do
+  begin
+    if not DirExists(Folder) then Exit;
+    DelTree(Folder, True, True, True);
+    if not DirExists(Folder) then Exit;
+    Sleep(500);
+  end;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataDir, Vendor: String;
   DoDelete: Boolean;
 begin
+  if CurUninstallStep = usUninstall then
+  begin
+    StopRunningCopies;
+    Exit;
+  end;
   if CurUninstallStep <> usPostUninstall then Exit;
+  RemoveProgramFolder;
   Vendor := ExpandConstant('{userappdata}\Kitchensinc Revival');
   DataDir := Vendor + '\Brain';
   if not DirExists(DataDir) then Exit;

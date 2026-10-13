@@ -37,10 +37,12 @@ def estimated_seconds(text: str) -> float:
     """How long JAWS probably takes to say text; JAWS reports no end of speech, so the wait is a guess.
 
     Measured 2026-10-13 on the owner's JAWS by loopback capture (tools/jaws_duration_check.py): 0.02 to 0.045 s per
-    character (0.65 s for 28 characters, 1.33 s for 59), speech starts 0.05 to 0.1 s after the command. The guess is
-    a little above that, so a sound never starts over the end of a prompt; players with slower JAWS voices get overlap.
+    character (0.65 s for 28 characters, 1.33 s for 59), speech starts 0.05 to 0.1 s after the command. The first guess
+    (0.08 s + 0.024 s per character) left a silent gap of 0.5 s before the sounds of every playback; the fit is now
+    0.08 s + 0.024 s per character (0.75 s for the 28 character playback prompt). Long texts with digits run slower
+    than this and overlap what follows a little; the F3 setting "sounds start right away" removes the wait entirely.
     """
-    return min(30.0, 0.15 + 0.035 * len(text.strip()))
+    return min(30.0, 0.08 + 0.024 * len(text.strip()))
 
 
 def _make_com():

@@ -79,6 +79,7 @@ class Audio:
         freq None or outside DirectSound's 100..200000 Hz range plays at the file's own rate
         (the original's failed SetFrequency changed nothing, GAME_SPEC 5.3). Returns the seconds the
         sound takes (0 when nothing plays)."""
+        log.debug("play slot %d %s freq %s pan %s", slot + 1, pick.sound_id, freq, pan)   # BRAIN_DEBUG=1: timing tools read this
         self.stop(slot)
         sound = pick.sound
         if sound is None:

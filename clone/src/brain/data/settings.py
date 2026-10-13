@@ -22,6 +22,7 @@ class SpeechSettings:
 class AudioSettings:
     effects_volume: int = 100    # percent; 100 = the original's SetVolume 0 (full volume, GAME_SPEC 5.4)
     pitch_spread: int = 20       # steps of 100 Hz: the original's r = Int(Rnd * 40) - 20 (GAME_SPEC 5.3); 0 = no change
+    start_early: bool = False    # clone addition: False = the sounds wait for the spoken prompt (original); True = they start at once
 
 
 @dataclass

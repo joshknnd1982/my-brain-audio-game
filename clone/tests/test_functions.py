@@ -423,3 +423,34 @@ def test_settings_menu_has_an_item_that_opens_the_folder_with_settings_txt(tmp_p
     rig.functions.settings_dir = str(tmp_path)
     rig.game.run()
     assert rig.opened == [str(tmp_path)] and words.SETTINGS_FOLDER_OPENING in rig.spoken
+
+
+# ----- F3 last item: sounds start right away (latency) -----
+
+def waited_after_press_space(rig):
+    spoken = [i for i, (kind, text) in enumerate(rig.fake.events) if kind == "speak" and texts.PRESS_SPACE in text]
+    assert spoken, "the playback prompt was never spoken"
+    after = rig.fake.events[spoken[0] + 1:spoken[0] + 2]
+    return after == [("wait", "")]
+
+
+def test_sounds_wait_for_the_spoken_prompt_unless_the_player_chooses_right_away():
+    rig = Rig(stub(1), answers=[KEY_1, ENTER, ESC], functions=True, rng=Seeded(1))
+    rig.pass_hook = lambda n: n == 6 and rig.keys.post(ESC)
+    rig.game.run()
+    assert waited_after_press_space(rig)                       # original: say waits for the prompt
+    rig = Rig(stub(1), answers=[F3, END, RIGHT, ESC, KEY_1, ENTER, ESC], functions=True, rng=Seeded(1))
+    rig.pass_hook = lambda n: n == 6 and rig.keys.post(ESC)
+    rig.game.run()
+    assert rig.settings.audio.start_early is True
+    assert has(rig, "Sounds start: right away, while the prompt is spoken.")
+    assert not waited_after_press_space(rig)                   # the prompt is queued, the first sound starts at once
+
+
+def test_sounds_start_item_is_restored_by_enter_and_by_restore_the_original_sound_settings():
+    rig = Rig(stub(1), answers=[F3, END, RIGHT, ENTER, ESC, ESC], functions=True)
+    rig.game.run()
+    assert rig.settings.audio.start_early is False and has(rig, "Sounds start: after the spoken prompt, original.")
+    rig = Rig(stub(1), answers=[F3, END, RIGHT, HOME, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, ENTER, ESC, ESC], functions=True)
+    rig.game.run()
+    assert rig.settings.audio.start_early is False

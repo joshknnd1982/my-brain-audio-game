@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
 from .backend import SpeechBackend
+from .waveout import trim_silence
 
 log = logging.getLogger(__name__)
 
@@ -191,6 +192,7 @@ class SapiBackend(SpeechBackend):
         self._ready = threading.Event()
         self._thread: threading.Thread | None = None
         self._errors_logged = 0
+        self.on_healthy = None    # called once when speech has ended after this was set (the voice guard, data/voiceguard.py)
         self.started = SapiStart(ok=False, error="not started")
 
     # ----- life cycle -------------------------------------------------------------
@@ -440,6 +442,7 @@ class SapiBackend(SpeechBackend):
                     done = True
             if done:
                 log.debug("speech done")
+                self._note_healthy()
                 progress = None
                 with self._cv:
                     self._busy = False
@@ -511,6 +514,7 @@ class SapiBackend(SpeechBackend):
             idle = stream is None and not pending and not player.busy()
             if idle and self._busy:
                 log.debug("speech done")
+                self._note_healthy()
                 with self._cv:
                     if not self._queued:
                         self._busy = False
@@ -533,6 +537,8 @@ class SapiBackend(SpeechBackend):
         """Give the finished audio to the player. False when the voice made none."""
         try:
             data = bytes(stream.GetData())
+            if data:
+                data = trim_silence(data, RENDER_RATE)     # voices end with silence that would delay the sounds
             if data and not self._player.write(data):
                 log.warning("the audio device refused speech")
             self.last_start_at = time.monotonic()
@@ -592,6 +598,14 @@ class SapiBackend(SpeechBackend):
                     self._choose_mode(voice)
         except Exception as exc:
             self._log_error(kind, exc)
+
+    def _note_healthy(self) -> None:
+        hook, self.on_healthy = self.on_healthy, None
+        if hook is not None:
+            try:
+                hook()
+            except Exception as exc:
+                log.debug("voice health hook failed: %s", exc)
 
     def _log_error(self, what: str, exc: Exception) -> None:
         if self._errors_logged < 20:  # a broken engine must not flood the log

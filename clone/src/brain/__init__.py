@@ -7,9 +7,9 @@ Packages:
   game    pure logic and the key fields (no window, no sound card needed)
   speech  SAPI 5 and NVDA speech behind one manager
   audio   wav playback, pitch and pan (P7 S7.2)
-  ui      the wx window that receives keys
+  ui      the Win32 window that receives keys
   data    per-user paths, settings, logging
 """
 
-VERSION = "1.0.0"
+VERSION = "1.0.2"
 TITLE = "Brain"

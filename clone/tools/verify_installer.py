@@ -15,9 +15,14 @@ import sys
 import time
 import winreg
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))     # python -I does not add the script's folder
+import who_holds_folder      # same folder: which processes hold a folder's files (Restart Manager)
+
 GAME = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RELEASE = os.path.join(GAME, "release")
-SETUP = os.path.join(RELEASE, "brain-setup-1.0.0.exe")
+import re
+VERSION = re.search(r'VERSION = "([^"]+)"', open(os.path.join(GAME, "clone", "src", "brain", "__init__.py"), encoding="utf-8").read()).group(1)
+SETUP = os.path.join(RELEASE, f"brain-setup-{VERSION}.exe")
 ISCC = r"C:\Users\joshk\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
 SCRATCH = os.path.join(os.path.expanduser("~"), ".kitchensinc-builds", "brain", "install-test")
 APP = os.path.join(SCRATCH, "app")
@@ -58,6 +63,16 @@ def registry_version():
         return None
 
 
+def wait_for(condition, seconds=45.0):
+    """The uninstaller carries on in a temporary copy after its own process returns: poll instead of sleeping."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if condition():
+            return True
+        time.sleep(0.25)
+    return condition()
+
+
 def count(folder):
     return sum(len(files) for _, _, files in os.walk(folder)) if os.path.isdir(folder) else 0
 
@@ -70,6 +85,38 @@ def start_and_close(exe, data_dir, seconds=7):
     alive = proc.poll() is None
     subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     return alive
+
+
+def start_in_program_folder(exe, data_dir, seconds=7):
+    """Start the exe with the PROGRAM FOLDER as its working directory (what an old shortcut or a double click in
+    Explorer does), the situation that used to lock the folder; return the process."""
+    env = dict(os.environ, BRAIN_DATA_DIR=data_dir)
+    proc = subprocess.Popen([exe], env=env, cwd=os.path.dirname(exe))
+    time.sleep(seconds)
+    return proc
+
+
+def close_politely(proc, limit=20.0):
+    """Ask the window to close (WM_CLOSE, no /F), return how many seconds the process needed to be really gone (None: still there)."""
+    started = time.time()
+    subprocess.run(["taskkill", "/PID", str(proc.pid)], capture_output=True)
+    try:
+        proc.wait(limit)
+    except subprocess.TimeoutExpired:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+        return None
+    return time.time() - started
+
+
+def can_rename(folder):
+    """A folder that something holds (open file, or a process whose working directory is in it) cannot be renamed."""
+    probe = folder + "_probe_rename"
+    try:
+        os.rename(folder, probe)
+        os.rename(probe, folder)
+        return True
+    except OSError:
+        return False
 
 
 def main():
@@ -99,8 +146,8 @@ def main():
 
         # 2. update over it with the real setup
         result = install(SETUP, os.path.join(SCRATCH, "install_new.log"))
-        check("1.0.0 installs over 0.9.0", result.returncode == 0, result.returncode)
-        check("registry says 1.0.0", registry_version() == "1.0.0", registry_version())
+        check(f"{VERSION} installs over 0.9.0", result.returncode == 0, result.returncode)
+        check(f"registry says {VERSION}", registry_version() == VERSION, registry_version())
         check("stale library file of the old version is removed", not os.path.exists(stale))
         check("a player's own file in assets\\sounds is kept", os.path.exists(mine))
         check("42 shipped wavs and the license are installed",
@@ -121,7 +168,7 @@ def main():
               os.path.exists(os.path.join(fresh, "sounds", "sounds.txt")) and os.path.exists(os.path.join(fresh, "logs", "brain.log")))
         log_text = open(os.path.join(fresh, "logs", "brain.log"), encoding="utf-8", errors="replace").read()
         check("no warnings or errors in the installed exe's log", " ERROR " not in log_text and "Traceback" not in log_text)
-        check("installed exe says version 1.0.0", "Brain clone 1.0.0 starting" in log_text)
+        check(f"installed exe says version {VERSION}", f"Brain clone {VERSION} starting" in log_text)
 
         # 4. silent uninstall keeps settings
         marker = os.path.join(DATA, "Brain", "settings.txt")
@@ -130,17 +177,44 @@ def main():
             open(marker, "w").write("# Brain settings, format 1\n")
         before = count(DATA)
         result = uninstall()
-        time.sleep(2)
+        wait_for(lambda: registry_version() is None and not os.path.exists(APP))
+        time.sleep(1)
         check("silent uninstall succeeds", result.returncode == 0, result.returncode)
-        check("program files removed", not os.path.exists(os.path.join(APP, "brain.exe")) and not os.path.exists(os.path.join(APP, "_internal")))
+        # owner bug 2026-10-13: the "My Brain" folder was left behind. The WHOLE program folder goes, even a file the
+        # player put into it by hand (the player's own sounds belong in AppData, which is kept).
+        check("the whole program folder is gone, nothing left in Program Files", not os.path.exists(APP), os.listdir(APP) if os.path.isdir(APP) else "")
+        check("Start menu folder removed", not os.path.exists(start_menu))
         check("registry entry removed", registry_version() is None)
-        check("player's own file in assets\\sounds survives uninstall (not ours to delete)", os.path.exists(mine))
         check("settings kept by a silent uninstall", os.path.exists(marker) and count(DATA) == before, f"{before} files")
 
-        # 5. reinstall, uninstall with /DELETEUSERDATA=1 deletes the settings folder
+        # 5. closing the game must let go of its folder (owner bug 2026-10-13: "folder in use" until a restart)
         install(SETUP, os.path.join(SCRATCH, "install_again.log"))
+        exe = os.path.join(APP, "brain.exe")
+        proc = start_in_program_folder(exe, fresh)
+        alive = proc.poll() is None
+        needed = close_politely(proc)
+        check("started from its own program folder it runs", alive)
+        check("closing the window ends the process within 10 seconds", needed is not None and needed <= 10.0, needed)
+        check("the program folder can be renamed right after closing (no process holds it)", wait_for(lambda: can_rename(APP), 3.0))
+        holding = who_holds_folder.holders(who_holds_folder.files_under(APP))
+        check("no process holds any file of the program folder after closing", not holding, holding)
+        # 6. uninstalling while the game is still running must stop it and still remove everything
+        proc = start_in_program_folder(exe, fresh)
+        running = proc.poll() is None
+        result = uninstall()
+        wait_for(lambda: registry_version() is None and not os.path.exists(APP), 60.0)
+        time.sleep(1)
+        check("the game was running during the uninstall", running)
+        check("uninstall while the game runs succeeds", result.returncode == 0, result.returncode)
+        check("the running game was stopped by the uninstaller", proc.poll() is not None)
+        check("uninstall while the game runs leaves no program folder", not os.path.exists(APP), os.listdir(APP) if os.path.isdir(APP) else "")
+        if proc.poll() is None:
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+
+        # 7. reinstall, uninstall with /DELETEUSERDATA=1 deletes the settings folder
+        install(SETUP, os.path.join(SCRATCH, "install_final.log"))
         result = uninstall(["/DELETEUSERDATA=1"])
-        time.sleep(2)
+        wait_for(lambda: registry_version() is None and not os.path.isdir(os.path.join(DATA, "Brain")))
         check("uninstall with /DELETEUSERDATA=1 succeeds", result.returncode == 0, result.returncode)
         check("settings folder deleted by it", not os.path.isdir(os.path.join(DATA, "Brain")))
     finally:

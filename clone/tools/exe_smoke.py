@@ -1,12 +1,14 @@
 """Smoke test of a BUILT brain.exe (P9 S9.2). Inspired by Jim Kitchen's Brain.
 
-Starts the exe from another folder with a scratch data folder, speech volume 0 and sound volume 2 percent
+Starts the exe with ITS OWN PROGRAM FOLDER as the working directory (what a double click in Explorer or an old shortcut
+does, and what used to lock the folder) and a scratch data folder, speech volume 0 and sound volume 2 percent
 (a faint sound the loopback capture can still see), types keys into its window, and checks:
   1. it starts and speaks the title and the main prompt (log at debug level),
   2. a sound plays: the speakers' loopback capture is louder during playback than before it,
   3. the right NVDA DLL file is in the bundle (PE machine type matches the build),
-  4. it exits cleanly (exit code 0, "Brain clone closed" in the log, no WARNING or ERROR lines),
-  5. which modules the process loaded (pygame, SDL, wx), to see the bundle is complete.
+  4. it exits cleanly (exit code 0, "Brain clone closed" in the log, no WARNING or ERROR lines), within 2 seconds of its
+     last log line (no lingering process), and then nothing holds its program folder (the folder can be renamed: fixesforgames.md B-U2),
+  5. which modules the process loaded (pygame, SDL), to see the bundle is complete.
 NVDA mode is not exercised here (it would speak through the owner's screen reader).
 Usage: <python with soundcard, numpy, pywin32> exe_smoke.py <path to brain.exe> <bits 32|64> <scratch folder> [sound volume] [sapi|nvda|jaws|auto]
 """
@@ -64,7 +66,7 @@ baseline = max(p for _, p in peaks[-45:]) if peaks else 0.0
 # ----- start the exe and find its window ------------------------------------------------------
 env = dict(os.environ, BRAIN_DATA_DIR=scratch, BRAIN_DEBUG="1")
 started = time.perf_counter()
-proc = subprocess.Popen([exe], cwd=scratch, env=env)
+proc = subprocess.Popen([exe], cwd=os.path.dirname(exe), env=env)     # the program folder as working directory, on purpose
 
 
 def find_window():
@@ -130,23 +132,43 @@ try:
     handle = win32api.OpenProcess(win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, False, proc.pid)
     import win32process as wp
     modules = [os.path.basename(wp.GetModuleFileNameEx(handle, m)).lower() for m in wp.EnumProcessModulesEx(handle, 3)]  # 3 = 32 and 64-bit modules (a 64-bit driver watching a 32-bit exe)
-    wanted = [m for m in modules if any(k in m for k in ("sdl2", "wx", "python3", "_mixer", "pywintypes"))]
+    wanted = [m for m in modules if any(k in m for k in ("sdl2", "python3", "_mixer", "pywintypes"))]
     print("  modules of interest:", ", ".join(sorted(set(wanted))))
-    check("python, SDL and wx loaded", any("sdl2" in m for m in modules) and any(m.startswith("wx") or "_core" in m for m in modules))
+    check("python and SDL loaded", any("sdl2" in m for m in modules) and any(m.startswith("python3") for m in modules))
 except Exception as exc:  # the module list is a bonus check
     print("  module list unavailable:", exc)
 
 key(32)                                    # space: stop playback
 time.sleep(2.0)
-key(27)                                    # Escape: exit
-try:
-    code = proc.wait(timeout=30)
-except subprocess.TimeoutExpired:
+key(27)                                    # Escape: exit (the original speaks its goodbye first, several seconds)
+escaped = time.perf_counter()
+closed_logged = None
+while proc.poll() is None and time.perf_counter() - escaped < 40:
+    if closed_logged is None and "Brain clone closed" in log_text():
+        closed_logged = time.perf_counter()
+    time.sleep(0.05)
+if proc.poll() is None:
     proc.kill()
     code = None
+else:
+    code = proc.returncode
+if closed_logged is None and "Brain clone closed" in log_text():
+    closed_logged = time.perf_counter()     # the process ended within one polling step of the line
+lingered = None if closed_logged is None else time.perf_counter() - closed_logged
 stop_capture.set()
 print(f"  ran {time.perf_counter() - started:.1f} s")
 check("exits cleanly", code == 0, f"exit code {code}")
+check("the process is gone within 2 seconds of its last log line (no lingering process)", lingered is not None and lingered <= 2.0, "no closing line" if lingered is None else f"{lingered:.2f} s")
+program_folder = os.path.dirname(exe)
+probe = program_folder + "_probe_rename"
+try:
+    os.rename(program_folder, probe)
+    os.rename(probe, program_folder)
+    renamed = True
+except OSError as exc:
+    renamed = False
+    print("  cannot rename the program folder:", exc)
+check("nothing holds the program folder after exit (it can be renamed)", renamed)
 text = log_text()
 check("closes through its own exit path", "Brain clone closed" in text)
 bad = [l for l in text.splitlines() if (" WARNING " in l or " ERROR " in l or "Traceback" in l)
@@ -166,6 +188,13 @@ if os.path.exists(dll):
     machine = struct.unpack_from("<H", data, pe + 4)[0]
 want = 0x8664 if bits == 64 else 0x14C
 check("NVDA DLL bundled, right architecture", machine == want, f"{dll} machine {machine and hex(machine)}")
+try:
+    import pefile
+    flags = pefile.PE(exe, fast_load=True).OPTIONAL_HEADER.DllCharacteristics
+    # Control Flow Guard kills the process (0xC0000409) when a voice that emulates a CPU runs generated code (SmoothTalker)
+    check("Control Flow Guard flag is off in brain.exe (voices that emulate a CPU)", not flags & 0x4000, hex(flags))
+except ImportError:
+    print("SKIP Control Flow Guard check (pefile not installed in this environment)")
 sounds = os.path.join(os.path.dirname(exe), "assets", "sounds")
 count = len([f for f in os.listdir(sounds) if f.lower().endswith(".wav")]) if os.path.isdir(sounds) else 0
 check("42 wavs beside the exe", count == 42, f"{count}")

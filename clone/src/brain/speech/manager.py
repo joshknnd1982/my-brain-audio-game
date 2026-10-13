@@ -128,6 +128,11 @@ class SpeechManager:
     def base_rate(self) -> int:
         return self._on_sapi("base_rate", lambda s: s.base_rate, 0)
 
+    def watch_voice_health(self, callback) -> None:
+        """Call callback once, when the SAPI 5 voice has spoken something to the end (the crash guard's all clear)."""
+        if self.sapi is not None and hasattr(self.sapi, "on_healthy"):
+            self.sapi.on_healthy = callback
+
     def nvda_running(self) -> bool:
         try:
             return self.nvda is not None and bool(self.nvda.is_available())

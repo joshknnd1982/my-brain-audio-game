@@ -116,11 +116,11 @@ def test_arrowing_pattern_cuts_then_queues_the_next_item():
 
 
 def test_wait_uses_an_estimate_from_the_text_and_ends_on_abort():
-    assert estimated_seconds("") == pytest.approx(0.15)
-    assert estimated_seconds("x" * 100) == pytest.approx(3.65)
+    assert estimated_seconds("") == pytest.approx(0.08)
+    assert estimated_seconds("x" * 100) == pytest.approx(2.48)
     assert estimated_seconds("x" * 10000) == 30.0
     backend = JawsBackend(factory=lambda: FakeJawsCom(), window_open=lambda: False)
-    backend.speak("x" * 100)           # 3.65 s real time unless aborted
+    backend.speak("x" * 100)           # 2.48 s real time unless aborted
     abort = threading.Event()
     threading.Timer(0.05, abort.set).start()
     backend.wait_until_done(abort)     # returns when aborted (the test would hang otherwise)
@@ -268,3 +268,21 @@ def test_jaws_output_is_saved_read_back_and_accepted_in_any_spelling():
     assert back.speech.mode == "jaws" and problems == []
     back, problems = parse("sound_volume = 50\nspeech_output = jawz\n")
     assert back.speech.mode == "sapi" and len(problems) == 1
+
+
+# ----- the F3 setting "sounds start right away" (latency of the first sound) -----
+
+def test_sound_start_setting_is_saved_read_back_and_defaults_to_the_original_wait():
+    from brain.data.settings import Settings
+    from brain.data.settingsfile import parse, render
+    s = Settings.defaults()
+    assert s.audio.start_early is False
+    assert "sound_start = after_prompt" in render(s)
+    s.audio.start_early = True
+    back, problems = parse(render(s))
+    assert back.audio.start_early is True and problems == []
+    for word, expected in (("Right away", True), ("early", True), ("after prompt", False), ("original", False)):
+        back, problems = parse(f"sound_volume = 50\nsound_start = {word}\n")
+        assert back.audio.start_early is expected and problems == []
+    back, problems = parse("sound_volume = 50\nsound_start = soon\n")
+    assert back.audio.start_early is False and len(problems) == 1

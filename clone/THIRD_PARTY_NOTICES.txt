@@ -16,13 +16,10 @@ pygame-ce 2.5.8 (with SDL 2 and SDL_mixer), GNU LGPL 2.1 (SDL: zlib license). So
 numpy 2.5.4, BSD-3-Clause (and other permissive licenses for bundled parts). Pitch changes.
   https://numpy.org/
 
-wxPython 4.3.1 (wxWidgets), wxWindows Library License (LGPL with an exception). The program window that receives the keys.
-  https://wxpython.org/
-
 pywin32 312, Python Software Foundation License. Speech through SAPI 5, Windows calls.
   https://github.com/mhammond/pywin32
 
 PyInstaller 6.22.3, GPL 2 or later with an exception that allows its output to be distributed under any license. Used to build brain.exe.
   https://pyinstaller.org/
 
-Because pygame-ce, SDL and wxWidgets are LGPL-style libraries, they are shipped as separate files in the _internal folder and can be replaced by the user with compatible versions. The source code of Brain is at https://github.com/joshknnd1982 (the Brain repository).
+Because pygame-ce and SDL are LGPL-style libraries, they are shipped as separate files in the _internal folder and can be replaced by the user with compatible versions. The source code of Brain is at https://github.com/joshknnd1982 (the Brain repository).

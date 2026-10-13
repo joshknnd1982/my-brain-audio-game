@@ -2,8 +2,8 @@
 # Python 3.14.8, installed twice: 64-bit and 32-bit (playbook 7.1, 7.2).
 # Install into each environment with: python -m pip install -r requirements.txt
 pygame-ce==2.5.8
-wxPython==4.3.1
 numpy==2.5.4
 pywin32==312
 pyinstaller==6.22.3
 pytest==9.1.1
+pefile==2024.8.26

@@ -2,9 +2,9 @@
 
 Same as `python -m brain`; a separate file because PyInstaller wants a script to start from.
 """
-import sys
 
 from brain.app import main
+from brain.data.lifecycle import finish
 
 if __name__ == "__main__":
-    sys.exit(main())
+    finish(main())      # flush the log and end the process at once: nothing may stay behind

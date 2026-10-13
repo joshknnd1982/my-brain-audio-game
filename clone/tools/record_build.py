@@ -25,10 +25,10 @@ def sha(path):
 
 def tool_versions(bits):
     py = os.path.join(VENVS, f"brain-{bits}", "Scripts", "python.exe")
-    code = ("import sys,struct,PyInstaller,pygame,numpy,wx,win32api;"
-            "print(sys.version.split()[0], struct.calcsize('P')*8, PyInstaller.__version__, pygame.version.ver, numpy.__version__, wx.version().split()[0])")
+    code = ("import sys,struct,PyInstaller,pygame,numpy,win32api;"
+            "print(sys.version.split()[0], struct.calcsize('P')*8, PyInstaller.__version__, pygame.version.ver, numpy.__version__)")
     out = subprocess.run([py, "-I", "-c", code], capture_output=True, text=True, env=dict(os.environ, PYGAME_HIDE_SUPPORT_PROMPT="1")).stdout.split()
-    return dict(zip(["python", "bits", "pyinstaller", "pygame-ce", "numpy", "wxPython"], out))
+    return dict(zip(["python", "bits", "pyinstaller", "pygame-ce", "numpy"], out))
 
 
 os.makedirs(RELEASE, exist_ok=True)

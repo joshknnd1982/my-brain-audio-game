@@ -155,7 +155,7 @@ def make_voices(*names):
 
 class Rig:
     def __init__(self, library, answers=(), rng=None, menu=None, speech_per_char=0.0, folder="nowhere",
-                 functions=False, voices=None, export_dir="nowhere-export"):
+                 functions=False, voices=None, export_dir="nowhere-export", voice_guard=None):
         self.clock = Clock()
         self.fake = FakeBackend(seconds_per_char=speech_per_char)
         self.speech = SpeechManager(self.fake, None)
@@ -182,7 +182,7 @@ class Rig:
         if functions:
             self.functions = Functions(self.speech, self.keys, self.audio, self.settings, self.catalog, export_dir,
                                        open_folder=lambda path: self.opened.append(path) or True,
-                                       on_change=self.count_change, clock=self.clock)
+                                       on_change=self.count_change, clock=self.clock, voice_guard=voice_guard)
         self.game = Game(self.speech, self.keys, self.audio, folder, rng=self.rng, clock=self.clock,
                          sleep=sleep, find_menu=lambda f: menu,
                          launch_menu=lambda path: self.launched.append(path) or True, functions=self.functions)

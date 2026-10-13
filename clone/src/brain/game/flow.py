@@ -69,6 +69,10 @@ class Game:
         if text:
             self.speech.say(text, self.keys.quit)
 
+    def sounds_start_early(self) -> bool:
+        """The F3 setting: start the sounds without waiting for the spoken prompt (default off: the original waited)."""
+        return bool(self.functions is not None and self.functions.settings.audio.start_early)
+
     def say_async(self, text: str) -> None:
         if text:
             self.speech.say_async(text)
@@ -207,7 +211,10 @@ class Game:
         slots.begin_playback()
         self.speak_notices(wait=True)
         keys.clk()
-        self.say(texts.PRESS_SPACE)
+        if self.sounds_start_early():
+            self.say_async(texts.PRESS_SPACE)       # clone setting: no wait for the prompt, the first sound starts at once
+        else:
+            self.say(texts.PRESS_SPACE)
         self.rng.reseed()                       # Randomize Timer
         passes = 0
         while True:

@@ -2,20 +2,32 @@
 
 NVDA Controller Client 2026.2 (LGPL 2.1, NV Access, shipped unmodified in nvda_client/):
 x86/nvdaControllerClient.dll for 32-bit builds, x64/ for 64-bit. Functions used (nvdaController.h):
-testIfRunning, speakText, cancelSpeech, brailleMessage, and from API 2.0 (NVDA 2024.1+)
-speakSsml and the SSML mark callback. All return 0 on success, a Windows error code otherwise.
+testIfRunning, speakText, cancelSpeech, brailleMessage, and from API 2.0 (NVDA 2024.1+) speakSsml.
+All return 0 on success, a Windows error code otherwise (1223 = the call was cancelled).
 
-Waiting speech: NVDA has no "speech finished" call. The text is sent as SSML with a mark at the
-end, and the wait ends when NVDA reports that mark, or after a time estimated from the text
-length. Never call speakSsml with asynchronous=False: on the owner's PC that call blocked for
-301 seconds when the SSML held no spoken text (S7.1 test).
-Anything failing (DLL missing, NVDA not running or closing) makes is_available() False; the
-manager then falls back to SAPI 5 silently (playbook 7.3).
+Waiting for speech (owner bug 2026-10-13: "a long silence after the prompt, before the sounds"):
+NVDA has no "finished" call, but speakSsml with asynchronous=False returns exactly when NVDA has finished
+speaking the text (TESTED on the owner's NVDA: 1.17 s for a prompt NVDA says in 1.0 s; cancelSpeech from another
+thread makes the blocked call return 1223 at once; two blocked calls on two threads speak in order). The SSML mark
+callback of the header cannot be used: it is an RPC callback that NVDA can deliver only while a blocking call is
+open, and the first version used asynchronous calls, so no end mark ever arrived and every wait ran out its full
+estimate (0.5 s + 0.09 s per character: 3 s for a 28 character prompt that takes 1 s).
+A cancelSpeech sent while nothing is speaking leaves NVDA with a stale cancel: the NEXT blocking call returns 1223 after
+a few milliseconds without speaking anything (TESTED: the game stops speech at start and on keys, so every wait then
+ended at once and the sounds started over the prompt). So stop() cancels only when a call of ours is open or queued,
+and a call that comes back 1223 although we cancelled nothing is made once more.
+So every text with words is spoken by a worker thread that makes the blocking call, one text after the other, in the
+order given. wait_until_done() waits until the worker has nothing in flight and nothing queued. stop() drops the
+queue and cancels, which frees the blocked call. A call that never returns (NVDA stuck) is cancelled once it is
+HANG_MARGIN_SECONDS past the estimate, so the game cannot wait for ever. Texts without a letter or digit (a lone "#")
+are sent as asynchronous SSML, because a blocking call with nothing to say can hang for 301 s (S7.1 test).
+Anything failing (DLL missing, NVDA not running or closing) makes is_available() False; the manager then falls back
+to SAPI 5 silently (playbook 7.3).
 """
 from __future__ import annotations
 
+import collections
 import ctypes
-import itertools
 import logging
 import os
 import struct
@@ -30,7 +42,12 @@ log = logging.getLogger(__name__)
 
 SYMBOL_LEVEL_UNCHANGED = -1
 SPEECH_PRIORITY_NORMAL = 0
-RPC_S_UNKNOWN_IF = 1717  # NVDA older than 2024.1: API 2.0 functions missing
+RPC_S_UNKNOWN_IF = 1717       # NVDA older than 2024.1: API 2.0 functions missing
+ERROR_CANCELLED = 1223        # a blocking call ended by cancelSpeech
+HANG_MARGIN_SECONDS = 2.0     # a blocking call still open this long after the estimate is cancelled
+NO_WORDS_HOLD_SECONDS = 0.3   # what the wait allows for a text with nothing to say
+STALE_CANCEL_SECONDS = 0.25   # a call cancelled this quickly although we cancelled nothing met a stale cancel
+UNAVAILABLE_AFTER_FAILURE = 2.0
 
 
 def dll_path() -> str:
@@ -42,11 +59,13 @@ def dll_path() -> str:
 
 
 def estimated_seconds(text: str) -> float:
-    """Upper guess for how long NVDA takes to say text, used only when no end mark arrives."""
+    """Upper guess for how long NVDA takes to say text: only the limit for a call that does not return, and the
+    wait for old NVDA versions that cannot report the end of speech."""
     return min(30.0, 0.5 + 0.09 * len(text.strip()))
 
 
-_MarkCallback = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_wchar_p)
+def has_words(text: str) -> bool:
+    return any(ch.isalnum() for ch in text)
 
 
 class NvdaBackend(SpeechBackend):
@@ -58,14 +77,16 @@ class NvdaBackend(SpeechBackend):
         self._clock = clock
         self._dll = None
         self._load_failed = False
-        self._lock = threading.Lock()
-        self._marks = itertools.count(1)
-        self._mark_cv = threading.Condition()
-        self._last_mark = 0          # number of the last end mark NVDA reported
-        self._pending_mark = 0       # number of the last end mark sent
-        self._deadline = 0.0         # estimated end of everything queued
+        self._lock = threading.Lock()                 # loading the DLL
         self._ssml_ok = True
-        self._callback = _MarkCallback(self._on_mark)  # keep a reference while the DLL may call it
+        self._cv = threading.Condition()
+        self._queue: collections.deque = collections.deque()    # (generation, text)
+        self._generation = 0
+        self._in_flight: tuple[str, float] | None = None        # (text, when the blocking call began)
+        self._hold_until = 0.0                        # end of speech that cannot be waited for call by call
+        self._worker: threading.Thread | None = None
+        self._closed = False
+        self._failed_until = 0.0
 
     # ----- DLL ----------------------------------------------------------------------
     def _load(self):
@@ -85,9 +106,6 @@ class NvdaBackend(SpeechBackend):
                         dll.nvdaController_speakSsml.argtypes = [ctypes.c_wchar_p, ctypes.c_int,
                                                                  ctypes.c_int, ctypes.c_bool]
                         dll.nvdaController_speakSsml.restype = ctypes.c_ulong
-                        dll.nvdaController_setOnSsmlMarkReachedCallback.argtypes = [_MarkCallback]
-                        dll.nvdaController_setOnSsmlMarkReachedCallback.restype = ctypes.c_ulong
-                        dll.nvdaController_setOnSsmlMarkReachedCallback(self._callback)
                     except (AttributeError, OSError):
                         self._ssml_ok = False
                     self._dll = dll
@@ -109,65 +127,120 @@ class NvdaBackend(SpeechBackend):
 
     # ----- SpeechBackend -----------------------------------------------------------
     def is_available(self) -> bool:
+        if self._clock() < self._failed_until:
+            return False
         return self._call("nvdaController_testIfRunning") == 0
 
     def speak(self, text: str) -> bool:
-        number = next(self._marks)
-        sent = False
-        if self._ssml_ok:
-            ssml = f'<speak>{escape(text)}<mark name="brain{number}"/></speak>'
-            code = self._call("nvdaController_speakSsml", ssml, SYMBOL_LEVEL_UNCHANGED,
-                              SPEECH_PRIORITY_NORMAL, True)
-            if code == RPC_S_UNKNOWN_IF:
-                self._ssml_ok = False  # older NVDA: plain text from now on
-            sent = code == 0
-        if not sent:
-            sent = self._call("nvdaController_speakText", text) == 0
-            if sent:
-                number = 0  # no mark will come for plain text
-        if sent:
-            with self._mark_cv:
-                start = max(self._clock(), self._deadline)
-                self._deadline = start + estimated_seconds(text)
-                self._pending_mark = number
-        return sent
+        log.debug("NVDA speak %r", text)         # BRAIN_DEBUG=1: the timing tools read this
+        if self._load() is None:
+            return False
+        with self._cv:
+            if self._closed:
+                return False
+            self._queue.append((self._generation, text))
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._run, name="nvda-speech", daemon=True)
+                self._worker.start()
+            self._cv.notify_all()
+        return True
 
     def stop(self) -> None:
-        self._call("nvdaController_cancelSpeech")
-        with self._mark_cv:
-            self._deadline = 0.0
-            self._pending_mark = 0
-            self._mark_cv.notify_all()
+        with self._cv:
+            speaking = self._in_flight is not None or bool(self._queue) or self._clock() < self._hold_until
+            self._generation += 1                # whatever is queued is dropped, whatever is in flight is cancelled
+            self._queue.clear()
+            self._hold_until = 0.0
+            self._cv.notify_all()
+        if speaking:                             # an idle cancel would leave a stale cancel that kills the next call
+            self._call("nvdaController_cancelSpeech")
 
     def wait_until_done(self, abort: threading.Event | None = None) -> None:
-        with self._mark_cv:
+        stuck = False
+        with self._cv:
             while True:
                 if abort is not None and abort.is_set():
                     return
-                if self._pending_mark and self._last_mark >= self._pending_mark:
+                now = self._clock()
+                in_flight = self._in_flight
+                if in_flight is None and not self._queue and now >= self._hold_until:
                     return
-                left = self._deadline - self._clock()
-                if left <= 0:
-                    return
-                self._mark_cv.wait(min(left, 0.02))
+                if in_flight is not None and now - in_flight[1] > estimated_seconds(in_flight[0]) + HANG_MARGIN_SECONDS:
+                    stuck = True
+                    break
+                self._cv.wait(0.02)
+        if stuck:
+            log.warning("NVDA did not finish speaking in time; cancelling it")
+            self.stop()
 
     def braille(self, message: str) -> None:
         self._call("nvdaController_brailleMessage", message)
 
     def close(self) -> None:
-        if self._dll is not None and self._ssml_ok:
-            try:
-                self._dll.nvdaController_setOnSsmlMarkReachedCallback(_MarkCallback())
-            except Exception:
-                pass
+        with self._cv:
+            speaking = self._in_flight is not None or bool(self._queue)
+            self._closed = True
+            self._generation += 1
+            self._queue.clear()
+            self._cv.notify_all()
+        if speaking and self._dll is not None:       # an idle cancel would be left behind for the next program that calls NVDA
+            self._call("nvdaController_cancelSpeech")
 
-    # ----- callback from NVDA's RPC thread --------------------------------------------
-    def _on_mark(self, name) -> int:
-        try:
-            if name and name.startswith("brain"):
-                with self._mark_cv:
-                    self._last_mark = max(self._last_mark, int(name[5:]))
-                    self._mark_cv.notify_all()
-        except Exception:
-            pass
-        return 0
+    # ----- the worker: one blocking call after the other ---------------------------------
+    def _run(self) -> None:
+        while True:
+            with self._cv:
+                while not self._queue and not self._closed:
+                    self._cv.wait()
+                if self._closed:
+                    return
+                generation, text = self._queue.popleft()
+                if generation != self._generation:
+                    continue
+                if has_words(text) and self._ssml_ok:
+                    self._in_flight = (text, self._clock())
+            try:
+                self._speak_one(text, generation)
+            except Exception as exc:               # a worker must never die
+                log.warning("NVDA speech failed: %s", exc)
+            with self._cv:
+                self._in_flight = None
+                self._cv.notify_all()
+
+    def _speak_one(self, text: str, generation: int = 0) -> None:
+        if self._ssml_ok:
+            ssml = f"<speak>{escape(text)}</speak>"
+            blocking = has_words(text)
+            for attempt in (1, 2):
+                began = self._clock()
+                code = self._call("nvdaController_speakSsml", ssml, SYMBOL_LEVEL_UNCHANGED,
+                                  SPEECH_PRIORITY_NORMAL, not blocking)
+                log.debug("NVDA speakSsml (%s) returned %s after %.2f s", "blocking" if blocking else "async", code,
+                          self._clock() - began)
+                stale = (blocking and code == ERROR_CANCELLED and generation == self._generation
+                         and self._clock() - began < STALE_CANCEL_SECONDS)
+                if not stale or attempt == 2:
+                    break
+                log.debug("NVDA call was cancelled by nobody: a stale cancel, asking again")
+            if code == RPC_S_UNKNOWN_IF:
+                self._ssml_ok = False              # older NVDA: plain text from now on, waited for by estimate
+            elif code in (0, ERROR_CANCELLED):
+                if not blocking:
+                    self._hold(NO_WORDS_HOLD_SECONDS)
+                return
+            else:
+                self._note_failure("speakSsml", code)
+                return
+        code = self._call("nvdaController_speakText", text)
+        if code == 0:
+            self._hold(estimated_seconds(text))
+        else:
+            self._note_failure("speakText", code)
+
+    def _hold(self, seconds: float) -> None:
+        with self._cv:
+            self._hold_until = max(self._clock(), self._hold_until) + seconds
+
+    def _note_failure(self, what: str, code: int) -> None:
+        log.warning("NVDA %s returned %s; using the other speech engine for a moment", what, code)
+        self._failed_until = self._clock() + UNAVAILABLE_AFTER_FAILURE

@@ -135,20 +135,19 @@ def check_voice_registry():
 
 
 def check_wx_with_pygame():
+    """Name kept from the wxPython days: the Win32 window (ctypes) and the pygame mixer in one process."""
+    import sys
     import pygame
-    import wx
-    app = wx.App(False)
-    frame = wx.Frame(None, title="My Brain by Josh Kennedy, inspired by Jim Kitchen")
-    keys = []
-    frame.Bind(wx.EVT_CHAR_HOOK, lambda e: keys.append(e.GetKeyCode()))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+    from brain.ui.window import BrainWindow
+    window = BrainWindow(lambda code: None, lambda: None)
     pygame.mixer.init(44100, -16, 2, 256)  # both libraries in one process
     ok = pygame.mixer.get_init() is not None
     pygame.mixer.quit()
-    frame.Destroy()
-    app.Destroy()
+    window.destroy()
     if not ok:
-        raise RuntimeError("pygame mixer failed inside a wx process")
-    return f"wxPython {wx.version()}, frame created (not shown), pygame mixer works in the same process"
+        raise RuntimeError("pygame mixer failed in a process with a Win32 window")
+    return "Win32 window created through ctypes (not shown), pygame mixer works in the same process"
 
 
 def check_nvda(controller_dir):

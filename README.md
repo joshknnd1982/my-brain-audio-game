@@ -9,8 +9,8 @@ Press a number from 1 to 9 to choose how many sounds play at once, pick a pannin
 
 ## Download and install
 Get the files from the [Releases page](https://github.com/joshknnd1982/my-brain-audio-game/releases).
-- `brain-setup-1.0.0.exe`: the installer. One file for 64-bit and 32-bit Windows 10 or 11. It installs for you alone by default (no administrator rights needed) and offers an all-users install. It adds a Start menu entry and, if you tick it, a desktop shortcut. Uninstall it from Windows' Apps list; it asks whether to delete your settings too (the default is to keep them).
-- `brain-portable-1.0.0.zip`: no installation. Unpack it anywhere and run `brain.exe` from the `64-bit` folder (or `32-bit` on 32-bit Windows).
+- `brain-setup-1.0.2.exe`: the installer. One file for 64-bit and 32-bit Windows 10 or 11. It installs for you alone by default (no administrator rights needed) and offers an all-users install. It adds a Start menu entry and, if you tick it, a desktop shortcut. Uninstall it from Windows' Apps list; it removes the whole program folder (and closes My Brain first if it is running) and asks whether to delete your settings too (the default is to keep them).
+- `brain-portable-1.0.2.zip`: no installation. Unpack it anywhere and run `brain.exe` from the `64-bit` folder (or `32-bit` on 32-bit Windows).
 - `checksums.txt`: SHA-256 of both files.
 
 The files are not code-signed, because signing costs money. Windows SmartScreen may warn when you start the installer: choose "More info", then "Run anyway".
@@ -25,7 +25,7 @@ The original's keys keep their meaning: in the main menu the digits 1 to 9 and E
 - Tested: SAPI 5 voices and NVDA by the maintainer; JAWS 2026 (64-bit and 32-bit builds) by the maintainer, including a latency check while arrowing through the menus. JAWS cannot tell Brain when it has finished speaking, so Brain waits a time guessed from the text length before a sound starts.
 
 ## Your sounds, your settings
-Everything is in `%APPDATA%\Kitchensinc Revival\Brain` (F2's last item opens it): `settings.txt` (speech and sound settings), a `sounds` folder with `sounds.txt` and any sound files of your own (`brain5.wav` replaces sound 5; `brain43.wav` and up add sounds; ogg, flac and mp3 work too; F3 can listen to, reload, check and restore sounds), and `logs`. Damaged or missing files are repaired with the original values, with a spoken notice. The full description is in [clone/README.md](clone/README.md), which also ships as `README.txt` beside the program.
+Everything is in `%APPDATA%\Kitchensinc Revival\Brain` (F2's last item opens it): `settings.txt` (speech and sound settings), a `sounds` folder with `sounds.txt` and any sound files of your own (`brain5.wav` replaces sound 5; `brain43.wav` and up add sounds; ogg, flac and mp3 work too; F3 can listen to, reload, check and restore sounds), and `logs`. The last item of the F3 sounds menu chooses when the sounds start after you press Enter in the panning menu: after the spoken prompt "Press the space bar to stop" (the original's way, the default) or right away. Damaged or missing files are repaired with the original values, with a spoken notice. The full description is in [clone/README.md](clone/README.md), which also ships as `README.txt` beside the program.
 
 ## About the sound files
 The 42 wav files are Jim Kitchen's originals. Jim Kitchen gave the maintainer permission to use his wav files, but the original email is lost and a later phone call was not recorded, so that permission cannot be shown to anyone. The files are included on the maintainer's own responsibility. If a rights holder asks for them to be removed, they will be removed. The program's own code is a new work (below).

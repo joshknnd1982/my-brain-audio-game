@@ -24,3 +24,4 @@ venv/
 .pytest_cache/
 /release/checksums.txt
 /release/brain-portable-*/
+/fixesforgames.md

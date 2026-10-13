@@ -146,6 +146,11 @@ def spread_label(spread: int, original: bool) -> str:
     return f"{base}{', original' if original else ''}."
 
 
+def start_label(early: bool, original: bool) -> str:
+    base = "Sounds start: right away, while the prompt is spoken" if early else "Sounds start: after the spoken prompt"
+    return f"{base}{', original' if original else ''}."
+
+
 PREVIEW_ITEM = "Listen to the sounds one by one."
 RELOAD_ITEM = "Reload the sounds from the folder."
 CHECK_ITEM = "Check the sound files."

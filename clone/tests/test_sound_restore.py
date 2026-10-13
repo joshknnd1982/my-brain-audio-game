@@ -88,8 +88,8 @@ def test_restore_all_works_without_a_sounds_txt_or_folder(tmp_path):
 
 def test_menu_restore_one_puts_the_chosen_sound_back_and_says_where_the_file_went(tmp_path):
     lib, _, player = setup_player(tmp_path)
-    # End, Up = item 9; open the list; Down to sound 2; Enter; Escape (list, menu, main menu)
-    rig = run([F3, END, UP, ENTER, DOWN, ENTER, ESC, ESC, ESC], lib=lib)
+    # End, Up, Up = item 9 (the start setting is the last item); open the list; Down to sound 2; Enter; Escape (list, menu, main menu)
+    rig = run([F3, END, UP, UP, ENTER, DOWN, ENTER, ESC, ESC, ESC], lib=lib)
     assert any(words.RESTORE_ONE_ITEM in t for t in rig.spoken)
     assert any(t.startswith("Sound 2 is back to the original. Your file was moved to the removed sounds folder.") for t in rig.spoken)
     assert (player / REMOVED_FOLDER / "brain2.wav").is_file()
@@ -97,11 +97,11 @@ def test_menu_restore_one_puts_the_chosen_sound_back_and_says_where_the_file_wen
 
 def test_menu_restore_all_needs_a_second_enter(tmp_path):
     lib, _, player = setup_player(tmp_path)
-    rig = run([F3, END, ENTER, 65, ESC, ESC], lib=lib)                     # last item, Enter, then another key: cancel
+    rig = run([F3, END, UP, ENTER, 65, ESC, ESC], lib=lib)                   # the item before the last, Enter, then another key: cancel
     assert words.CONFIRM_RESTORE_ALL in rig.spoken and words.NOTHING_CHANGED in rig.spoken
     assert (player / "brain2.wav").is_file()
     lib, _, player = setup_player(tmp_path / "again")
-    rig = run([F3, END, ENTER, ENTER, ESC, ESC], lib=lib)
+    rig = run([F3, END, UP, ENTER, ENTER, ESC, ESC], lib=lib)
     assert (player / "brain2.wav").exists() is False and (player / REMOVED_FOLDER / "brain2.wav").is_file()
     assert any(t.startswith("All sounds are back to the original.") and "3 of your sound files were moved" in t for t in rig.spoken)
 
@@ -109,4 +109,4 @@ def test_menu_restore_all_needs_a_second_enter(tmp_path):
 def test_menu_items_are_the_last_two_and_the_old_ones_keep_their_place(tmp_path):
     lib, _, _ = setup_player(tmp_path)
     rig = run([F3, ESC, ESC], lib=lib)
-    assert any("Sounds. 10 items." in t for t in rig.spoken)
+    assert any("Sounds. 11 items." in t for t in rig.spoken)

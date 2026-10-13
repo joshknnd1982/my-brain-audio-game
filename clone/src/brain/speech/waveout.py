@@ -46,6 +46,35 @@ class WaveOutError(OSError):
     pass
 
 
+SILENCE_LEVEL = 100           # 16-bit samples this quiet or quieter (about -50 dB) count as silence
+KEEP_LEAD_SECONDS = 0.015     # leading silence kept
+KEEP_TAIL_SECONDS = 0.06      # trailing silence kept: a natural end, and a small gap before the next sentence
+
+
+def trim_silence(pcm: bytes, rate: int, lead: float = KEEP_LEAD_SECONDS, tail: float = KEEP_TAIL_SECONDS) -> bytes:
+    """Cut the silence that voices put before and after speech in a rendered stream (16-bit mono).
+
+    Some voices end every utterance with half a second of digital silence (FlexVoice2 Bill: 0.66 s after a 1.9 s
+    prompt). Played as it is, that silence is part of "the speech is done", so the game waits it out before it
+    starts the sounds (owner bug 2026-10-13: "a long silence in the tts engine"). Audio that is silent from end to end
+    (a voice at volume zero) is returned unchanged, so its timing stays what the voice made."""
+    if len(pcm) % 2:
+        return bytes(pcm)                      # not 16-bit samples: leave it alone
+    samples = memoryview(pcm).cast("h")
+    count = len(samples)
+    first = 0
+    while first < count and -SILENCE_LEVEL <= samples[first] <= SILENCE_LEVEL:
+        first += 1
+    if first == count:
+        return bytes(pcm)
+    last = count - 1
+    while -SILENCE_LEVEL <= samples[last] <= SILENCE_LEVEL:
+        last -= 1
+    start = max(0, first - int(lead * rate))
+    end = min(count, last + 1 + int(tail * rate))
+    return bytes(pcm[start * 2:end * 2])
+
+
 def _winmm():
     lib = ctypes.WinDLL("winmm")
     handle = ctypes.c_void_p

@@ -30,6 +30,8 @@ FORMAT_VERSION = 1
 FILE_NAME = "settings.txt"
 MODES = ("sapi", "nvda", "jaws", "auto")
 _MODE_WORDS = {"sapi": "sapi", "sapi5": "sapi", "sapi 5": "sapi", "nvda": "nvda", "jaws": "jaws", "auto": "auto", "automatic": "auto"}
+_START_WORDS = {"after_prompt": False, "prompt": False, "after": False, "original": False,
+                "right_away": True, "early": True, "now": True, "at_once": True}
 _VERSION = re.compile(r"^#\s*Brain settings,\s*format\s+(\d+)", re.IGNORECASE)
 _NAME = re.compile(r"^[a-z_]+$")
 
@@ -50,6 +52,8 @@ HEADER = f"""# Brain settings, format {FORMAT_VERSION}. Lines starting with # ar
 #                  next name that starts with it (press it again for the one after)
 # sound_volume     0 to 100 percent (original 100)
 # pitch_variation  0 to 20; 20 is the original, 0 plays every sound at its own pitch
+# sound_start      after_prompt = the sounds start when the spoken prompt has ended (original),
+#                  right_away = they start at once and the prompt is still being spoken
 #
 """
 
@@ -72,6 +76,7 @@ def render(settings: Settings, voice_name: str = "") -> str:
         f"list_letters = {sp.list_letters}",
         f"sound_volume = {au.effects_volume}",
         f"pitch_variation = {au.pitch_spread}",
+        f"sound_start = {'right_away' if au.start_early else 'after_prompt'}",
     ]
     return "\n".join(lines) + "\n"
 
@@ -158,6 +163,11 @@ def _apply(name: str, value: str, sp: SpeechSettings, au: AudioSettings) -> None
         au.effects_volume = _number(value, 0, 100)
     elif name == "pitch_variation":
         au.pitch_spread = _number(value, 0, 20)
+    elif name == "sound_start":
+        word = value.lower().replace(" ", "_").replace("-", "_")
+        if word not in _START_WORDS:
+            raise ValueError(f"'{value[:20]}' is not after_prompt or right_away")
+        au.start_early = _START_WORDS[word]
     else:
         raise KeyError(name)
 
@@ -252,6 +262,11 @@ class SettingsStore:
         """The voice in settings.txt is not installed any more: say so once (the saved choice is kept)."""
         if wanted and wanted.lower() != (used or "").lower():
             self._notices.append(VOICE_MISSING_NOTICE)
+
+    def note_voice_crashed(self, label: str, used: str) -> None:
+        """The saved voice took the program down last time: say so once (the saved choice is kept, picking it again retries)."""
+        self._notices.append(f"The voice {label} crashed Brain last time, so Brain uses {used or 'the first voice'} for now. "
+                             "Choose it again in the voice list to try it again.")
 
     def take_notices(self) -> list[str]:
         notices, self._notices = self._notices, []

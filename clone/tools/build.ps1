@@ -31,10 +31,34 @@ foreach ($b in ($Bits -split ",")) {
             --add-data "$srcCopy\brain\speech\nvda_client;brain\speech\nvda_client" `
             --hidden-import win32com.client --hidden-import pythoncom --hidden-import pywintypes `
             --hidden-import win32timezone `
-            --exclude-module tkinter --exclude-module pytest `
+            --exclude-module tkinter --exclude-module pytest --exclude-module wx `
+            --exclude-module ssl --exclude-module _ssl --exclude-module _hashlib `
+            --exclude-module pygame.font --exclude-module pygame.freetype --exclude-module pygame.image `
+            --exclude-module pygame.imageext --exclude-module pygame.transform --exclude-module pygame.draw `
+            --exclude-module pygame.mask --exclude-module pygame.pixelarray --exclude-module pygame.pixelcopy `
+            --exclude-module pygame.scrap --exclude-module pygame._sdl2 `
+            --exclude-module pygame.surfarray --exclude-module pygame.camera --exclude-module pygame.gfxdraw `
             brain_entry.py
         if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed for $b-bit" }
     } finally { Pop-Location }
+
+    # Libraries that only the excluded pygame modules (image, font) and ssl need: PyInstaller's pygame hook copies
+    # every DLL of the package, so the unused ones are deleted here (P10: 92 MB to 60 MB; the exe smoke test proves
+    # nothing was missing).
+    $internal = Join-Path $root "dist\brain\_internal"
+    foreach ($name in @("SDL2_image.dll", "SDL2_ttf.dll", "freetype.dll", "libjpeg-62.dll", "libpng16-16.dll", "libtiff-5.dll",
+                        "libwebp-7.dll", "libwebpdemux-2.dll", "libwebpmux-3.dll", "portmidi.dll", "libssl-3.dll", "libcrypto-3.dll",
+                        "libssl-3-x64.dll", "libcrypto-3-x64.dll", "libssl-1_1.dll", "libcrypto-1_1.dll")) {
+        foreach ($place in @($internal, (Join-Path $internal "pygame"))) {
+            $file = Join-Path $place $name
+            if (Test-Path $file) { Remove-Item -Force $file }
+        }
+    }
+    # PyInstaller's bootloader is built with Control Flow Guard. A voice that emulates a CPU (SmoothTalker) generates code
+    # at run time, and a CFG process dies with 0xC0000409 when it runs it (owner bug 2026-10-13, 64-bit build only).
+    # python.exe has no CFG flag and runs such voices fine, so the flag is cleared (tools\clear_cfg_flag.py).
+    & $py -I (Join-Path $clone "tools\clear_cfg_flag.py") (Join-Path $root "dist\brain\brain.exe")
+    if ($LASTEXITCODE -ne 0) { throw "clear_cfg_flag failed for $b-bit" }
 
     # Sounds and attribution beside the exe: the player sees and can replace them (playbook 7.7).
     $out = Join-Path $root "dist\brain"

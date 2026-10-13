@@ -41,8 +41,9 @@ def clamp(value: int, low: int, high: int) -> int:
 class Functions:
     def __init__(self, speech, keys, audio, settings: Settings, catalog, export_dir: str,
                  open_folder: Callable[[str], bool], on_change: Callable[[], None] = lambda: None,
-                 clock: Callable[[], float] = time.monotonic, settings_dir: str | None = None):
+                 clock: Callable[[], float] = time.monotonic, settings_dir: str | None = None, voice_guard=None):
         self.speech = speech
+        self.voice_guard = voice_guard      # data/voiceguard.py: records a voice while it is being tried
         self.keys = keys
         self.audio = audio
         self.settings = settings
@@ -207,6 +208,10 @@ class Functions:
                 continue
             # the engine's first voice is the original's choice: keep "no saved voice" for it
             sp.voice_id = None if voice.index == 0 else voice.voice_id
+            if self.voice_guard is not None and sp.voice_id:
+                self.voice_guard.forget(sp.voice_id)          # choosing a set-aside voice again is asking for another try
+                self.voice_guard.arm(sp.voice_id)             # cleared after it has spoken; a crash leaves it for the next start
+                self.speech.watch_voice_health(self.voice_guard.clear)
             self.speech.set_voice(sp.voice_id)
             self.on_change()
             return words.voice_chosen(voice.name) + " " + words.VOICE_SAMPLE
@@ -253,6 +258,14 @@ class Functions:
             au.pitch_spread = original.pitch_spread
             self.on_change()
 
+        def change_start(step: int) -> None:
+            au.start_early = not au.start_early
+            self.on_change()
+
+        def reset_start() -> None:
+            au.start_early = original.start_early
+            self.on_change()
+
         def reload() -> str:
             self.audio.refresh()
             notices = library.take_notices()
@@ -272,6 +285,7 @@ class Functions:
         def restore_all() -> str:
             reset_volume()
             reset_spread()
+            reset_start()
             return words.SOUNDS_RESTORED
 
         items = [
@@ -287,6 +301,8 @@ class Functions:
             Item(lambda: words.RESTORE_SOUNDS, enter=restore_all),
             Item(lambda: words.RESTORE_ONE_ITEM, enter=self.restore_one_sound),
             Item(lambda: words.RESTORE_ALL_ITEM, enter=self.restore_all_sounds),
+            Item(lambda: words.start_label(au.start_early, au.start_early == original.start_early),
+                 enter=lambda: reset_start(), change=change_start),
         ]
         SpokenMenu(self.speech, self.keys, words.SOUNDS_TITLE, items).run()
 
